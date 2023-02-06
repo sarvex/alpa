@@ -969,6 +969,9 @@ def main():
         if use_create_state_parallel:
             p_create_state = alpa.parallelize(create_state, method=CreateStateParallel(p_train_step, batch_aval))
             state_aval = p_create_state()
+            executable = p_create_state.get_last_executable()
+            executable.sync()
+            executable.dump_debug_info("/tmp/alpa_debug_info")
 
         train_executable = p_train_step.get_executable(state_aval, batch_aval)
         eval_executable = p_eval_step.get_executable(state_aval.params, batch_aval)
