@@ -259,8 +259,8 @@ class PipeshardDriverExecutable:
            where each tuple corresponds to one invocation.
         """
         exec_timer_name = get_execution_timer_name(self.exec_uuid)
-        run_begin_event = exec_timer_name + "-ins-run-begin"
-        run_end_event = exec_timer_name + "-ins-run-end"
+        run_begin_event = f"{exec_timer_name}-ins-run-begin"
+        run_end_event = f"{exec_timer_name}-ins-run-end"
 
         num_stages = len(self.stages)
         stage_start = [[] for _ in range(num_stages)]
@@ -286,9 +286,10 @@ class PipeshardDriverExecutable:
             mesh_idx = list(mesh_idx)[0]
             mesh = self.mesh_group[mesh_idx]
             host_ids, devices = mesh.host_ids, mesh.devices
-            per_stage_info_list = []
-            for s, e in zip(stage_start[i], stage_end[i]):
-                per_stage_info_list.append((s, e, host_ids, devices))
+            per_stage_info_list = [
+                (s, e, host_ids, devices)
+                for s, e in zip(stage_start[i], stage_end[i])
+            ]
             all_stages_info_list.append(per_stage_info_list)
         return all_stages_info_list
 
@@ -296,9 +297,9 @@ class PipeshardDriverExecutable:
         """Get the execution time costs with internal timers."""
         assert timer_name is None  # TODO(lmzheng): support other timers later
         timer_name = get_execution_timer_name(self.exec_uuid)
-        mesh_costs = []
-        for mesh in self.mesh_group:
-            mesh_costs.append(mesh.get_remote_timer(timer_name).costs)
+        mesh_costs = [
+            mesh.get_remote_timer(timer_name).costs for mesh in self.mesh_group
+        ]
         if return_all_costs:
             return mesh_costs
 
@@ -318,23 +319,22 @@ class PipeshardDriverExecutable:
 
     def get_hlo_text(self, status: HloStatus = HloStatus.FULLY_OPTIMIZED):
         """Return the HLO text for all stages."""
-        if status == HloStatus.FULLY_OPTIMIZED:
-            if self.fully_optimized_hlo_texts:
-                return self.fully_optimized_hlo_texts
-
-            hlo_texts = []
-            for stage_idx in range(len(self.stages)):
-                mesh_idx = self.schedule.stage_placement(stage_idx)
-                assert len(mesh_idx) == 1
-                mesh_idx = list(mesh_idx)[0]
-                physical_mesh = self.mesh_group[mesh_idx]
-                hlo_text = physical_mesh.workers[0].get_exec_hlo_text.remote(
-                    self.executable_uuids[stage_idx])
-                hlo_texts.append(hlo_text)
-            self.fully_optimized_hlo_texts = ray.get(hlo_texts)
-            return self.fully_optimized_hlo_texts
-        else:
+        if status != HloStatus.FULLY_OPTIMIZED:
             return self.sharding_annotated_hlo_texts
+        if self.fully_optimized_hlo_texts:
+            return self.fully_optimized_hlo_texts
+
+        hlo_texts = []
+        for stage_idx in range(len(self.stages)):
+            mesh_idx = self.schedule.stage_placement(stage_idx)
+            assert len(mesh_idx) == 1
+            mesh_idx = list(mesh_idx)[0]
+            physical_mesh = self.mesh_group[mesh_idx]
+            hlo_text = physical_mesh.workers[0].get_exec_hlo_text.remote(
+                self.executable_uuids[stage_idx])
+            hlo_texts.append(hlo_text)
+        self.fully_optimized_hlo_texts = ray.get(hlo_texts)
+        return self.fully_optimized_hlo_texts
 
     def get_stage_allocation_size(self):
         """Get the total memory allocation size in bytes of all stages."""
@@ -392,9 +392,9 @@ class PipeshardDriverExecutable:
     def profile_all_executable_with_dummy_inputs(self):
         """Profile all stage executables with dummy inputs."""
         all_profiled_handles = []
-        for _, physical_mesh in enumerate(self.mesh_group):
+        for physical_mesh in self.mesh_group:
             all_worker_profiled = []
-            for _, worker in enumerate(physical_mesh.workers):
+            for worker in physical_mesh.workers:
                 worker: MeshHostWorker
                 all_worker_profiled.append(
                     worker.profile_executable_with_dummy_inputs.remote(
@@ -402,8 +402,7 @@ class PipeshardDriverExecutable:
             if len(all_worker_profiled) == 1:
                 all_worker_profiled = all_worker_profiled[0]
             all_profiled_handles.append(all_worker_profiled)
-        all_profiled = [ray.get(handles) for handles in all_profiled_handles]
-        return all_profiled
+        return [ray.get(handles) for handles in all_profiled_handles]
 
     ##### Other Functions #####
     def sync(self):
@@ -507,10 +506,8 @@ class PipeshardMeshWorkerExecutable:
 
         # Setup tracer
         if collect_trace:
-            log_run_begin = partial(tracer.log,
-                                    self.exec_timer_name + "-ins-run-begin")
-            log_run_end = partial(tracer.log,
-                                  self.exec_timer_name + "-ins-run-end")
+            log_run_begin = partial(tracer.log, f"{self.exec_timer_name}-ins-run-begin")
+            log_run_end = partial(tracer.log, f"{self.exec_timer_name}-ins-run-end")
         else:
 
             def log_run_begin(*_, **__):

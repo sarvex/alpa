@@ -92,18 +92,14 @@ class MeshProfilingResult:
             cost_dict.update(new_cost_dict)
 
     def estimate_all_gather(self, group, size, dtype):
-        ret = (
-            self._estimate_internal(group, size, dtype,
-                                    self.all_gather_cost_dict) -
-            self._estimate_internal(group, 0, dtype, self.all_gather_cost_dict))
-        return ret
+        return self._estimate_internal(
+            group, size, dtype, self.all_gather_cost_dict
+        ) - self._estimate_internal(group, 0, dtype, self.all_gather_cost_dict)
 
     def estimate_all_reduce(self, group, size, dtype):
-        ret = (
-            self._estimate_internal(group, size, dtype,
-                                    self.all_reduce_cost_dict) -
-            self._estimate_internal(group, 0, dtype, self.all_reduce_cost_dict))
-        return ret
+        return self._estimate_internal(
+            group, size, dtype, self.all_reduce_cost_dict
+        ) - self._estimate_internal(group, 0, dtype, self.all_reduce_cost_dict)
 
     @staticmethod
     def _estimate_internal(group, size, dtype, cost_dict):
@@ -227,48 +223,66 @@ def _create_channel_id(backend):
 
 def _op_all_gather(operand, replica_groups, channel_id):
     replica_groups_protos = xc.make_replica_groups(replica_groups)
-    ret = ops.AllGather(operand, 0, len(replica_groups[0]),
-                        replica_groups_protos, channel_id, None, True)
-    return ret
+    return ops.AllGather(
+        operand,
+        0,
+        len(replica_groups[0]),
+        replica_groups_protos,
+        channel_id,
+        None,
+        True,
+    )
 
 
 def _op_all_reduce(operand, dtype, reduce_op, replica_groups, channel_id):
     replica_groups_protos = xc.make_replica_groups(replica_groups)
-    if reduce_op == "add":
-        rc = xc.XlaBuilder("reduce_" + reduce_op)
-        x = _op_parameter(rc, 0, (), dtype)
-        y = _op_parameter(rc, 1, (), dtype)
-        z = ops.Add(x, y)
-        rc = rc.build(z)
-    else:
+    if reduce_op != "add":
         raise NotImplementedError
 
-    ret = ops.AllReduce(operand, rc, replica_groups_protos, channel_id, None,
-                        True)
-    return ret
+    rc = xc.XlaBuilder(f"reduce_{reduce_op}")
+    x = _op_parameter(rc, 0, (), dtype)
+    y = _op_parameter(rc, 1, (), dtype)
+    z = ops.Add(x, y)
+    rc = rc.build(z)
+    return ops.AllReduce(
+        operand, rc, replica_groups_protos, channel_id, None, True
+    )
 
 
 def _op_all_to_all(operand, replica_groups, channel_id):
     replica_groups_protos = xc.make_replica_groups(replica_groups)
-    ret = ops.AllToAll(operand, 0, 0, len(replica_groups[0]),
-                       replica_groups_protos, channel_id, None, True)
-    return ret
+    return ops.AllToAll(
+        operand,
+        0,
+        0,
+        len(replica_groups[0]),
+        replica_groups_protos,
+        channel_id,
+        None,
+        True,
+    )
 
 
 def _op_reduce_scatter(operand, dtype, reduce_op, replica_groups, channel_id):
     replica_groups_protos = xc.make_replica_groups(replica_groups)
-    if reduce_op == "add":
-        rc = xc.XlaBuilder("reduce_" + reduce_op)
-        x = _op_parameter(rc, 0, (), dtype)
-        y = _op_parameter(rc, 1, (), dtype)
-        z = ops.Add(x, y)
-        rc = rc.build(z)
-    else:
+    if reduce_op != "add":
         raise NotImplementedError
 
-    ret = ops.ReduceScatter(operand, rc, 0, len(replica_groups[0]),
-                            replica_groups_protos, channel_id, None, True)
-    return ret
+    rc = xc.XlaBuilder(f"reduce_{reduce_op}")
+    x = _op_parameter(rc, 0, (), dtype)
+    y = _op_parameter(rc, 1, (), dtype)
+    z = ops.Add(x, y)
+    rc = rc.build(z)
+    return ops.ReduceScatter(
+        operand,
+        rc,
+        0,
+        len(replica_groups[0]),
+        replica_groups_protos,
+        channel_id,
+        None,
+        True,
+    )
 
 
 def _compile_profiling_executable_while_loop(backend, shapes, op_func,
@@ -487,7 +501,7 @@ def profile_one_hlo_op(backend, local_devices, host_id, num_devices, op_info):
                                  channel_id)
             operands[-1] = out
     elif op_info[0] == "barrier":
-        replica_groups = (tuple(i for i in range(num_devices)),)
+        replica_groups = (tuple(range(num_devices)), )
         dtype = to_np_dtype("f32")
         shapes = [((1,), dtype), ((1,), dtype)]
 
@@ -496,6 +510,7 @@ def profile_one_hlo_op(backend, local_devices, host_id, num_devices, op_info):
             out = _op_all_reduce(operands[0], dtype, "add", replica_groups,
                                  channel_id)
             operands[-1] = out
+
     else:
         raise NotImplementedError(f"Invalid op: {op_info[0]}")
 
@@ -648,8 +663,7 @@ def profile_dot(dot_range, device_cluster, cache_filename):
     # Profile dot
     op_infos = []
     for dtype in ["f16", "f32"]:
-        for n in dot_range:
-            op_infos.append(("dot", (n, n, n, dtype)))
+        op_infos.extend(("dot", (n, n, n, dtype)) for n in dot_range)
     results = physical_mesh.profile_hlo_ops(op_infos, cache_filename)
 
     dot_cost_dict = defaultdict(list)
@@ -669,31 +683,30 @@ def enumerate_all_collective_spec(num_hosts, num_devices_per_host,
                                   max_comm_size_intra_node,
                                   max_comm_size_inter_node):
     """Enumerate all possible collective groups."""
-    # Enumerate all possible logical meshes
-    logical_mesh_shapes = []
     num_devices = num_hosts * num_devices_per_host
-    for i in range(1, num_devices + 1):
-        if num_devices % i == 0:
-            logical_mesh_shapes.append((num_devices // i, i))
-
+    logical_mesh_shapes = [
+        (num_devices // i, i)
+        for i in range(1, num_devices + 1)
+        if num_devices % i == 0
+    ]
     # Enumerate all replica groups
     all_specs = set()
     for logical_mesh_shape in logical_mesh_shapes:
-        # dim 0
-        replica_groups = []
-        tmp_group = []
-        for i in range(logical_mesh_shape[0]):
-            tmp_group.append(
-                tuple(i * logical_mesh_shape[1] + j
-                      for j in range(logical_mesh_shape[1])))
-        replica_groups.append(tuple(tmp_group))
-
-        # dim 1
-        tmp_group = []
-        for j in range(logical_mesh_shape[1]):
-            tmp_group.append(
-                tuple(i * logical_mesh_shape[1] + j
-                      for i in range(logical_mesh_shape[0])))
+        tmp_group = [
+            tuple(
+                i * logical_mesh_shape[1] + j
+                for j in range(logical_mesh_shape[1])
+            )
+            for i in range(logical_mesh_shape[0])
+        ]
+        replica_groups = [tuple(tmp_group)]
+        tmp_group = [
+            tuple(
+                i * logical_mesh_shape[1] + j
+                for i in range(logical_mesh_shape[0])
+            )
+            for j in range(logical_mesh_shape[1])
+        ]
         replica_groups.append(tuple(tmp_group))
 
         for replica_group in replica_groups:

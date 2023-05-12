@@ -288,7 +288,7 @@ class MeshHostWorker:
         return self.executables[uuid].grad_sync_channel_ids
 
     def set_runtime_random_seed(self, seed: int):
-        seed = seed + (self.mesh_id << 20 if self.mesh_id else 0)
+        seed += self.mesh_id << 20 if self.mesh_id else 0
         for d in self.local_devices:
             d.set_seed(seed)
 
@@ -378,8 +378,7 @@ class MeshHostWorker:
     def generate_nccl_uid(group_name):
         """Generate the NCCL unique ID in advance."""
         g = col.check_and_get_group(group_name)
-        uid = g.generate_nccl_uid()
-        return uid
+        return g.generate_nccl_uid()
 
     @staticmethod
     def init_p2p_communicator(group_name, my_rank, my_gpu_idx, peer_rank,
@@ -888,13 +887,12 @@ class LocalPhysicalDeviceMesh(PhysicalDeviceMesh):
                     pxla._shard_arg(x, self.devices, indices, None)
                     for x in micro_batches
                 ])
-            else:
-                if (isinstance(arg, pxla.ShardedDeviceArray) and
+            elif (isinstance(arg, pxla.ShardedDeviceArray) and
                         arg.indices == indices):
-                    bufs.append(arg.device_buffers)
-                else:
-                    bufs.append(
-                        pxla._shard_arg(arg, self.devices, indices, None))
+                bufs.append(arg.device_buffers)
+            else:
+                bufs.append(
+                    pxla._shard_arg(arg, self.devices, indices, None))
 
             if isinstance(arg, xe.DeviceArray) and donated:
                 arg.delete()
@@ -922,8 +920,7 @@ class LocalPhysicalDeviceMesh(PhysicalDeviceMesh):
                             sharding_specs: Sequence[ShardingSpec]):
         pmap_specs = pxla._get_pmap_sharding(np.arange(self.num_devices),
                                              sharding_specs)
-        outs_handler = pxla.local_avals_to_results_handler(avals, pmap_specs)
-        return outs_handler
+        return pxla.local_avals_to_results_handler(avals, pmap_specs)
 
     def set_runtime_random_seed(self, seed: int):
         for d in self.devices:
@@ -970,7 +967,7 @@ def device_id_to_str(host_ip, device_id, device_type="gpu"):
 
 
 # Used ports for XLA distributed runtime servers.
-used_port_set = set((None,))
+used_port_set = {None}
 
 
 class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
@@ -1004,7 +1001,7 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
             if len(devices) != len(host_ids):
                 raise RuntimeError(
                     "Please specify the gpu IDs used on each host.")
-            if not all(len(ids) == num_devices_per_host for ids in devices):
+            if any(len(ids) != num_devices_per_host for ids in devices):
                 raise RuntimeError(
                     "Devices specified for each host does not align "
                     "with `num_devices_per_host`.")
@@ -1040,16 +1037,13 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
         self.to_delete_remote_ref_ct = 0
 
     def get_host_worker_name(self, host_id):
-        if self.namespace:
-            return f"mesh_{self.mesh_id}_host_{host_id}"
-        else:
-            return None
+        return f"mesh_{self.mesh_id}_host_{host_id}" if self.namespace else None
 
     def connect_to_existing_workers(self):
-        workers = []
-        for i in range(self.num_hosts):
-            workers.append(ray.get_actor(self.get_host_worker_name(i)))
-        return workers
+        return [
+            ray.get_actor(self.get_host_worker_name(i))
+            for i in range(self.num_hosts)
+        ]
 
     def launch_xla_servers(self):
         # Launch distributed xla runtime
@@ -1111,13 +1105,14 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
                     "NCCL_DEBUG"] if i == 0 else "VERSION"
 
             if global_config.use_aws_efa:
-                env_vars.update({
+                env_vars |= {
                     "FI_PROVIDER": "efa",
                     "FI_EFA_USE_DEVICE_RDMA": "1",
-                    "LD_LIBRARY_PATH": os.environ.get("LD_LIBRARY_PATH",
-                                                      ""),  # For libnccl-net.so
+                    "LD_LIBRARY_PATH": os.environ.get(
+                        "LD_LIBRARY_PATH", ""
+                    ),  # For libnccl-net.so
                     "NCCL_PROTO": "simple",
-                })
+                }
 
             bundle_index = device_bundle_idx_list[i]
 
@@ -1145,11 +1140,10 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
 
     @property
     def host_ips(self):
-        ips = [
+        return [
             self.host_info[i]["NodeManagerAddress"]
             for i, _ in enumerate(self.host_ids)
         ]
-        return ips
 
     def get_virtual_physical_mesh(self):
         return VirtualPhysicalMesh(
@@ -1204,6 +1198,8 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
             assert not return_list
             host_local_ids = [host_local_ids]
 
+        # [host_id-> (buf_idx-> (local_device_id->device_buffer))]
+        obj_refs = []
         if batching:
             # Batch the remote calls by host ids
             ary_ids = np.array([ref.uuid for ref in ary_refs])
@@ -1216,11 +1212,12 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
                 for host_id, tmp_per_host in enumerate(tmp_ids):
                     per_host_ids[host_id][arg_id] = np.array(tmp_per_host)
 
-            # [host_id-> (buf_idx-> (local_device_id->device_buffer))]
-            obj_refs = []
-            for host_id in range(self.num_hosts):
-                obj_refs.append(self.workers[host_id].get_buffers.remote(
-                    ary_ids, per_host_ids[host_id]))
+            obj_refs.extend(
+                self.workers[host_id].get_buffers.remote(
+                    ary_ids, per_host_ids[host_id]
+                )
+                for host_id in range(self.num_hosts)
+            )
             per_host_results = ray.get(obj_refs)
             # [buf_id -> (flatten_id -> device_buffer)]
             ret = []
@@ -1232,7 +1229,6 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
                         per_host_results[host_id][ref_idx][local_idx])
                 ret.append(buffers)
         else:
-            obj_refs = []
             for ary_ref, id_pairs in zip(ary_refs, host_local_ids):
                 ary_obj_refs = []
                 for id_pair in id_pairs:
@@ -1241,10 +1237,7 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
                         self.workers[host_id].get_buffers.remote(
                             ary_ref.uuid, local_id))
                 obj_refs.append(ary_obj_refs)
-            if return_ray_ref:
-                ret = obj_refs
-            else:
-                ret = [ray.get(refs) for refs in obj_refs]
+            ret = obj_refs if return_ray_ref else [ray.get(refs) for refs in obj_refs]
         return ret if return_list else ret[0]
 
     def delete_remote_buffers(self, ary_refs: List["RemoteArrayRef"]):
@@ -1273,10 +1266,11 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
     def block_until_ready_remote_buffers(self,
                                          ary_refs: List["RemoteArrayRef"]):
         """Block until the remote buffers are ready."""
-        tasks = []
         ary_uuids = np.array([ref.uuid for ref in ary_refs])
-        for worker in self.workers:
-            tasks.append(worker.block_until_ready_buffers.remote(ary_uuids))
+        tasks = [
+            worker.block_until_ready_buffers.remote(ary_uuids)
+            for worker in self.workers
+        ]
         ray.get(tasks)
 
     ##### Executable Related Functions #####
@@ -1305,36 +1299,24 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
                         arg = np.asarray(arg)
                     refs = _shard_array(arg, self, indices, num_micro_batches)
                     ret_bufs.append(refs)
-            else:
-                if (isinstance(arg, DistributedArray) and
+            elif (isinstance(arg, DistributedArray) and
                         arg.device_mesh == self and arg.indices == indices):
-                    # Fast path for DistributedArray
-                    ret_bufs.append(arg.remote_ref)
-                elif isinstance(arg, ReplicatedDistributedArray):
-                    replica = arg.get_replica_on_mesh(self)
-                    assert replica.indices == indices
-                    ret_bufs.append(replica.remote_ref)
-                else:  # Slow path
-                    slow_path = True
-                    if type(arg) not in [ShapedArray, ShapeDtypeStruct]:
-                        arg = xla.canonicalize_dtype(arg)
-                    ref = shard_arg_handlers[type(arg)](arg, self, indices)[0]
-                    ret_bufs.append(ref)
-                    if donated and hasattr(arg, "delete"):
-                        # shard_arg_handler always creates new buffers,
-                        # so we can delete the old buffers
-                        arg.delete()
-
-            if False and slow_path:  # pylint: disable=condition-evals-to-constant
-                # Print debug info
-                size = np.prod(arg.shape) * arg.dtype.itemsize
-                bandwidth = size / (time.time() - tic)
-                total_bytes += size
-                print("Slow path. "
-                      f"shape: {arg.shape}, "
-                      f"bandwidth: {bandwidth/1024**2:.2f} MB/s "
-                      f"total_bytes: {total_bytes/1024**2:.2f} MB "
-                      f"total_time: {time.time() - time_start:.2f}")
+                # Fast path for DistributedArray
+                ret_bufs.append(arg.remote_ref)
+            elif isinstance(arg, ReplicatedDistributedArray):
+                replica = arg.get_replica_on_mesh(self)
+                assert replica.indices == indices
+                ret_bufs.append(replica.remote_ref)
+            else:  # Slow path
+                slow_path = True
+                if type(arg) not in [ShapedArray, ShapeDtypeStruct]:
+                    arg = xla.canonicalize_dtype(arg)
+                ref = shard_arg_handlers[type(arg)](arg, self, indices)[0]
+                ret_bufs.append(ref)
+                if donated and hasattr(arg, "delete"):
+                    # shard_arg_handler always creates new buffers,
+                    # so we can delete the old buffers
+                    arg.delete()
 
         return ret_bufs
 
@@ -1391,11 +1373,10 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
                         cache_filename: str,
                         single_timeout: Optional[float] = None,
                         batch_timeout: Optional[float] = None):
-        tasks = []
-        for w in self.workers:
-            tasks.append(
-                w.profile_hlo_ops.remote(op_infos, cache_filename,
-                                         single_timeout))
+        tasks = [
+            w.profile_hlo_ops.remote(op_infos, cache_filename, single_timeout)
+            for w in self.workers
+        ]
         return ray.get(tasks, timeout=batch_timeout)[0]
 
     def get_remote_timer(self, timer_name: str):
@@ -1653,15 +1634,14 @@ class DistributedArray:
     def _value(self):
         if self._npy_value is None:
             npy_value = np.empty(self.aval.shape, self.aval.dtype)
-            if not self._fetched_np_buffers:
-                if not self._fetched_np_buffers_ref:
-                    fetched_np_buffers = self.device_mesh.get_remote_buffers(
-                        (self.remote_ref,),
-                        (self.one_replica_host_local_ids,))[0]
-                else:
-                    fetched_np_buffers = ray.get(self._fetched_np_buffers_ref)
-            else:
+            if self._fetched_np_buffers:
                 fetched_np_buffers = self._fetched_np_buffers
+            elif not self._fetched_np_buffers_ref:
+                fetched_np_buffers = self.device_mesh.get_remote_buffers(
+                    (self.remote_ref,),
+                    (self.one_replica_host_local_ids,))[0]
+            else:
+                fetched_np_buffers = ray.get(self._fetched_np_buffers_ref)
             for ct, i in enumerate(self.one_replica_buffer_ids):
                 npy_value[self.indices[i]] = fetched_np_buffers[ct]
             self._npy_value = npy_value
@@ -1708,9 +1688,7 @@ class ReplicatedDistributedArray:
 
     def is_replicated_on_mesh(self, mesh: PhysicalDeviceMesh):
         """Whether this distributed array is on a given mesh."""
-        if mesh in self._mesh_array_map:
-            return True
-        return False
+        return mesh in self._mesh_array_map
 
     def get_replica_on_mesh(self, mesh: PhysicalDeviceMesh):
         if not self.is_replicated_on_mesh(mesh):
@@ -1818,7 +1796,7 @@ class VirtualPhysicalMesh:
             if len(devices) != len(host_ids):
                 raise RuntimeError(
                     "Please specify the gpu IDs used on each host.")
-            if not all(len(ids) == num_devices_per_host for ids in devices):
+            if any(len(ids) != num_devices_per_host for ids in devices):
                 raise RuntimeError(
                     "Device IDs specified for each host does not align "
                     "with `num_devices_per_host`.")
@@ -2061,16 +2039,16 @@ class PhysicalDeviceMeshGroup:
         """Get the current size of allocated memory."""
         calls = []
         for mesh in self.meshes:
-            for worker in mesh.workers:
-                calls.append(worker.get_memory_allocated.remote())
+            calls.extend(worker.get_memory_allocated.remote() for worker in mesh.workers)
         return max(ray.get(calls))
 
     def get_max_memory_allocated(self):
         """Get the maximal size of memory allocated so far."""
         calls = []
         for mesh in self.meshes:
-            for worker in mesh.workers:
-                calls.append(worker.get_max_memory_allocated.remote())
+            calls.extend(
+                worker.get_max_memory_allocated.remote() for worker in mesh.workers
+            )
         return max(ray.get(calls))
 
     def get_max_memory_allocated_per_mesh(self):
@@ -2101,7 +2079,7 @@ class PhysicalDeviceMeshGroup:
                     group_name = self.collective_groups[i][j].group_name
                     # TODO(Hao): move this part of recycling to
                     #   ray.util.collective instead of here.
-                    name = "info_" + group_name
+                    name = f"info_{group_name}"
                     try:
                         store = ray.get_actor(name)
                         ray.kill(store)
@@ -2142,7 +2120,7 @@ class DeviceCluster:
         except AttributeError as ae:
             raise RuntimeError(
                 "Cannot access ray global node. Did you call ray.init?") \
-                from ae
+                    from ae
 
         # Gather host ids
         all_host_info = []
@@ -2187,7 +2165,7 @@ class DeviceCluster:
         # Create placement group
         self.namespace = namespace
         if namespace:
-            pg_name = namespace + "_pg"
+            pg_name = f"{namespace}_pg"
             try:
                 pg = ray.util.get_placement_group(pg_name)
             except ValueError:
@@ -2456,21 +2434,19 @@ def _shard_abstract_array(array,
 def _shard_array(array, device_mesh, indices, num_batch=1, batch_dim=0):
     if global_config.use_dummy_value_for_benchmarking:
         return _device_mesh_put_dummy(array, device_mesh, indices, num_batch)
-    else:
         # Create shards according to indices for a numpy array
-        if array.shape == ():
-            # need a special branch because np.ascontiguousarray does not
-            # correctly preserve the shapes of rank-0 arrays.
-            datas = [np.asarray(array)] * len(indices)
-        else:
-            datas = [np.ascontiguousarray(array[i]) for i in indices]
-        if num_batch > 1:
-            concate_datas = []
-            for device_id in range(device_mesh.num_devices):
-                mb = datas[device_id * num_batch:(device_id + 1) * num_batch]
-                concate_datas.append(np.concatenate(mb, axis=batch_dim))
-            datas = concate_datas
-        return _device_mesh_put(device_mesh, datas, num_batch, batch_dim)
+    datas = (
+        [np.asarray(array)] * len(indices)
+        if array.shape == ()
+        else [np.ascontiguousarray(array[i]) for i in indices]
+    )
+    if num_batch > 1:
+        concate_datas = []
+        for device_id in range(device_mesh.num_devices):
+            mb = datas[device_id * num_batch:(device_id + 1) * num_batch]
+            concate_datas.append(np.concatenate(mb, axis=batch_dim))
+        datas = concate_datas
+    return _device_mesh_put(device_mesh, datas, num_batch, batch_dim)
 
 
 def _shard_device_array(array, device_mesh, indices, num_batch=1, batch_dim=0):
@@ -2491,9 +2467,7 @@ def _shard_distributed_array(array,
                                                   indices, num_batch, batch_dim)
 
 
-shard_arg_handlers = {}  # Shard an argument to a distributed array
-for a in array_types:
-    shard_arg_handlers[a] = _shard_array
+shard_arg_handlers = {a: _shard_array for a in array_types}
 shard_arg_handlers[ShapedArray] = _shard_abstract_array
 shard_arg_handlers[ShapeDtypeStruct] = _shard_abstract_array
 shard_arg_handlers[xla._DeviceArray] = _shard_device_array

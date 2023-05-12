@@ -309,6 +309,4 @@ class ConformerForASRModule(nn.Module):
                                   deterministic=deterministic,
                                   train=train)
 
-        logits = self.decoder(hidden_states)
-
-        return logits
+        return self.decoder(hidden_states)

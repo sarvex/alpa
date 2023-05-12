@@ -587,9 +587,11 @@ class FlaxCrossAttnDownBlock2D(nn.Module):
             hidden_states = attn(hidden_states,
                                  encoder_hidden_states,
                                  deterministic=deterministic)
-            if self.config.add_manual_pipeline_markers:
-                if idx != self.config.layers_per_block - 1:
-                    mark_pipeline_boundary()
+            if (
+                self.config.add_manual_pipeline_markers
+                and idx != self.config.layers_per_block - 1
+            ):
+                mark_pipeline_boundary()
             output_states += (hidden_states,)
 
         if self.add_downsample:
@@ -649,9 +651,11 @@ class FlaxDownBlock2D(nn.Module):
             hidden_states = resnet(hidden_states,
                                    temb,
                                    deterministic=deterministic)
-            if self.config.add_manual_pipeline_markers:
-                if idx != self.config.layers_per_block - 1:
-                    mark_pipeline_boundary()
+            if (
+                self.config.add_manual_pipeline_markers
+                and idx != self.config.layers_per_block - 1
+            ):
+                mark_pipeline_boundary()
             output_states += (hidden_states,)
 
         if self.add_downsample:
@@ -1070,7 +1074,7 @@ class FlaxUNet2DConditionModel(nn.Module):
         # 1. time
         if not isinstance(timesteps, jnp.ndarray):
             timesteps = jnp.array([timesteps], dtype=jnp.int32)
-        elif isinstance(timesteps, jnp.ndarray) and len(timesteps.shape) == 0:
+        elif len(timesteps.shape) == 0:
             timesteps = timesteps.astype(dtype=jnp.float32)
             timesteps = jnp.expand_dims(timesteps, 0)
 
@@ -1132,10 +1136,7 @@ class FlaxUNet2DConditionModel(nn.Module):
         sample = self.conv_out(sample)
         sample = jnp.transpose(sample, (0, 3, 1, 2))
 
-        if not return_dict:
-            return (sample,)
-
-        return FlaxUNet2DConditionOutput(sample=sample)
+        return FlaxUNet2DConditionOutput(sample=sample) if return_dict else (sample, )
 
 
 def get_unet_2d(sample_size,

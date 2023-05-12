@@ -60,9 +60,7 @@ def freeze_dict(pytree: PyTreeDef):
         return isinstance(x, dict)
 
     def freeze(x):
-        if isinstance(x, dict):
-            return FrozenDict(x)
-        return x
+        return FrozenDict(x) if isinstance(x, dict) else x
 
     return tree_map(freeze, pytree, is_leaf)
 
@@ -93,9 +91,7 @@ def auto_donate_argnums(args: Sequence[Any]):
 
     def should_donate(x):
         # Always donate optimizer
-        if isinstance(x, train_state.TrainState):
-            return True
-        return False
+        return isinstance(x, train_state.TrainState)
 
     return tuple(i for i in range(len(args)) if should_donate(args[i]))
 
@@ -139,9 +135,7 @@ class GradFuncTransformContext:
 
 def to_int_tuple(array: np.ndarray):
     """Convert a numpy array to int tuple."""
-    if array is None:
-        return tuple()
-    return tuple(int(x) for x in array)
+    return tuple() if array is None else tuple(int(x) for x in array)
 
 
 def check_arithmetic_sequence(array: np.ndarray):
@@ -150,10 +144,14 @@ def check_arithmetic_sequence(array: np.ndarray):
     if len(array) < 2:
         return None
     delta = array[1] - array[0]
-    for i in range(2, len(array)):
-        if array[i] - array[i - 1] != delta:
-            return None
-    return delta
+    return next(
+        (
+            None
+            for i in range(2, len(array))
+            if array[i] - array[i - 1] != delta
+        ),
+        delta,
+    )
 
 
 class OrderedSet:
@@ -244,9 +242,7 @@ class OrderedSet:
         self.difference_update(other)
 
     def __eq__(self, other):
-        if isinstance(other, OrderedSet):
-            return self.dict == other.dict
-        return False
+        return self.dict == other.dict if isinstance(other, OrderedSet) else False
 
     @classmethod
     def __class_getitem__(cls, item):
@@ -271,7 +267,7 @@ class DisjointDict:
     def recursive_lookup(self, key):
         lookup_queue = [key]
         value = None
-        while len(lookup_queue) > 0:
+        while lookup_queue:
             k = lookup_queue.pop()
             if value is not None:
                 self.values[k] = value
@@ -385,9 +381,7 @@ def setup_computation_alias(hlo: WrappedHlo, donated_invars: Sequence[bool]):
             if parameter_shapes[p_in] == result_shapes[p_out]:
                 hlo.get_module().setup_alias((p_out,), p_in, ())
                 p_in += 1
-                p_out += 1
-            else:
-                p_out += 1
+            p_out += 1
         else:
             p_in += 1
 
@@ -408,9 +402,7 @@ def count_communication_primitives(hlo_ir: str,
     all_to_all = hlo_ir.count("all-to-all(") + hlo_ir.count("all-to-all-start(")
 
     if ignore_scalar_all_reduce:
-        # Ignore allreduce of scalar values
-        scalar_all_reduce = 0
-        scalar_all_reduce += hlo_ir.count("all-reduce(f32[]")
+        scalar_all_reduce = 0 + hlo_ir.count("all-reduce(f32[]")
         scalar_all_reduce += hlo_ir.count("all-reduce-start(f32[]")
         scalar_all_reduce += hlo_ir.count("all-reduce(f16[]")
         scalar_all_reduce += hlo_ir.count("all-reduce-start(f16[]")
@@ -473,12 +465,12 @@ def compile_concatenate(mesh_shape, sharding_spec, batch_size, batch_dim, aval):
     c = xc.XlaBuilder("concatenate buffers")
     sharding = pxla.sharding_spec_sharding_proto(sharding_spec)
     c.set_sharding(sharding)
-    operands = []
-    for batch_idx in range(batch_size):
-        operands.append(
-            xc.ops.Parameter(
-                c, batch_idx,
-                xc.shape_from_pyval(np.ones(aval.shape, aval.dtype))))
+    operands = [
+        xc.ops.Parameter(
+            c, batch_idx, xc.shape_from_pyval(np.ones(aval.shape, aval.dtype))
+        )
+        for batch_idx in range(batch_size)
+    ]
     concated = xc.ops.ConcatInDim(c, operands, batch_dim)
     hlo_module = c.build(concated).as_hlo_module()
 
@@ -730,7 +722,7 @@ def process_remat(closed_jaxpr: ClosedJaxpr):
 
     def difference_cross_marker(eqns, base, dif):
         base = set(base)
-        dif = set(v for v in dif if is_meaningful(v))
+        dif = {v for v in dif if is_meaningful(v)}
         pipeline_mapping = {}
         for eqn in eqns:
             if eqn.primitive is pipeline_p:
@@ -965,15 +957,12 @@ def slices_to_jaxpr(
 
 def get_var_mapping(mapping, var):
     """map the var to a new value if var is Var and in the mapping."""
-    if isinstance(var, Var) and var in mapping:
-        return mapping[var]
-    else:
-        return var
+    return mapping[var] if isinstance(var, Var) and var in mapping else var
 
 
 def log_jaxpr(jaxpr: ClosedJaxpr, filename: str):
     """Print jaxpr int a temporary file for debugging purposes."""
-    path = "/tmp/" + filename
+    path = f"/tmp/{filename}"
     with open(path, "w", encoding="utf-8") as f:
         f.write(str(jaxpr))
 
@@ -1214,8 +1203,7 @@ def jax_tensor_set(src_buf, update, start_indices):
 
 @partial(jax.jit, static_argnums=(1, 2))
 def jax_tensor_index(src_tensor, indices, size):
-    dst_tensor = jax.lax.dynamic_slice(src_tensor, indices, size)
-    return dst_tensor
+    return jax.lax.dynamic_slice(src_tensor, indices, size)
 
 
 ########################################
@@ -1226,15 +1214,13 @@ def jax_tensor_index(src_tensor, indices, size):
 def run_cmd(cmd: str):
     """Run a bash command."""
     print(cmd)
-    ret = os.system(cmd)
-    return ret
+    return os.system(cmd)
 
 
 def list_gpu_info():
     """List all gpu information by calling nvidia-smi."""
     ret = subprocess.getoutput("nvidia-smi -L")
-    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-    if visible_devices:
+    if visible_devices := os.environ.get("CUDA_VISIBLE_DEVICES", None):
         ids = [int(x) for x in visible_devices.split(",")]
         lines = ret.split("\n")
         lines = [lines[i] for i in ids]
@@ -1255,21 +1241,20 @@ def get_num_hosts_and_num_devices(args):
                 args.num_devices_per_host is not None)
         num_hosts, num_devices_per_host = (args.num_hosts,
                                            args.num_devices_per_host)
-    else:
-        if hasattr(args, "local") and args.local:
-            num_hosts = 1
-            if global_config.backend == "gpu":
-                num_devices_per_host = list_gpu_info().count("UUID")
-            elif global_config.backend == "tpu":
-                num_devices_per_host = len(jax.devices("tpu"))
-            else:
-                raise ValueError(
-                    f"Unsupported backend: {global_config.backend}")
+    elif hasattr(args, "local") and args.local:
+        num_hosts = 1
+        if global_config.backend == "gpu":
+            num_devices_per_host = list_gpu_info().count("UUID")
+        elif global_config.backend == "tpu":
+            num_devices_per_host = len(jax.devices("tpu"))
         else:
-            ray.init(address="auto")
-            num_hosts = len(ray.nodes())
-            num_devices_per_host = int(
-                ray.cluster_resources()["GPU"]) // num_hosts
+            raise ValueError(
+                f"Unsupported backend: {global_config.backend}")
+    else:
+        ray.init(address="auto")
+        num_hosts = len(ray.nodes())
+        num_devices_per_host = int(
+            ray.cluster_resources()["GPU"]) // num_hosts
     return num_hosts, num_devices_per_host
 
 
@@ -1286,9 +1271,7 @@ def write_tsv(heads: Sequence[str],
         fout.write("\t".join(values) + "\n")
 
     if print_line:
-        line = ""
-        for i in range(len(heads)):
-            line += heads[i] + ": " + values[i] + "  "
+        line = "".join(f"{heads[i]}: {values[i]}  " for i in range(len(heads)))
         print(line)
 
 
@@ -1298,7 +1281,7 @@ def to_str_round(x: Any, decimal: int = 6):
         return x
     if isinstance(x, (list, tuple, np.ndarray)):
         tmp_str = ", ".join([to_str_round(y, decimal=decimal) for y in x])
-        return "[" + tmp_str + "]"
+        return f"[{tmp_str}]"
     if isinstance(x, dict):
         return str({k: to_str_round(v, decimal=decimal) for k, v in x.items()})
     if isinstance(x, (int, np.int32, np.int64)):
@@ -1308,7 +1291,7 @@ def to_str_round(x: Any, decimal: int = 6):
         return format_str % x
     if x is None:
         return str(x)
-    raise ValueError("Invalid value: " + str(x))
+    raise ValueError(f"Invalid value: {str(x)}")
 
 
 def check_server_port(address, port):
@@ -1353,15 +1336,14 @@ def try_import_ray_worker(error: bool = False):
     # worker = _DeprecationWrapper("worker", ray._private.worker)
     # `_DeprecationWrapper` has attributes of `_real_worker`
     try:
-        if hasattr(ray.worker, "_real_worker"):
-            if error:
-                raise ImportError("Could not import `ray.worker`!"
-                                  "You might use the ray-nightly "
-                                  "and `ray.worker` is deprecated there"
-                                  "`pip install ray==1.13.0`.")
-            return ray.worker._real_worker  # pylint: disable=protected-access
-        else:
+        if not hasattr(ray.worker, "_real_worker"):
             return ray.worker
+        if error:
+            raise ImportError("Could not import `ray.worker`!"
+                              "You might use the ray-nightly "
+                              "and `ray.worker` is deprecated there"
+                              "`pip install ray==1.13.0`.")
+        return ray.worker._real_worker  # pylint: disable=protected-access
     except ModuleNotFoundError:
         return ray._private.worker  # pylint: disable=protected-access
 
@@ -1382,15 +1364,14 @@ def try_import_ray_state(error: bool = False):
     # state = _DeprecationWrapper("state", ray._private.state)
     # `_DeprecationWrapper` has attributes of `_real_worker`
     try:
-        if hasattr(ray.state, "_real_worker"):
-            if error:
-                raise ImportError("Could not import `ray.state`!"
-                                  "You might use the ray-nightly "
-                                  "and `ray.state` is deprecated there"
-                                  "`pip install ray>=1.13.0`.")
-            return ray.state._real_worker  # pylint: disable=protected-access
-        else:
+        if not hasattr(ray.state, "_real_worker"):
             return ray.state
+        if error:
+            raise ImportError("Could not import `ray.state`!"
+                              "You might use the ray-nightly "
+                              "and `ray.state` is deprecated there"
+                              "`pip install ray>=1.13.0`.")
+        return ray.state._real_worker  # pylint: disable=protected-access
     except ModuleNotFoundError:
         return ray._private.state  # pylint: disable=protected-access
 
@@ -1436,10 +1417,9 @@ def get_bundle2ip(pg: PlacementGroup = None):
                 try_bundle_index = re.findall(r"bundle_group_(\d+)_.*",
                                               resource_name)
 
-            try_node_ip = re.findall(
-                r"^node:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$)", resource_name)
-
-            if try_node_ip:
+            if try_node_ip := re.findall(
+                r"^node:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$)", resource_name
+            ):
                 node_ip = try_node_ip[0]
 
             if try_bundle_index:
@@ -1448,11 +1428,7 @@ def get_bundle2ip(pg: PlacementGroup = None):
         dict_bg2ip.update(
             **dict(zip(bundle_index_list, [node_ip] * len(bundle_index_list))))
 
-    ip_list = []
-    for i in range(len(dict_bg2ip)):
-        ip_list.append(dict_bg2ip[str(i)])
-
-    return ip_list
+    return [dict_bg2ip[str(i)] for i in range(len(dict_bg2ip))]
 
 
 def env_integer(key, default):
@@ -1497,43 +1473,42 @@ def create_placement_group(num_hosts,
         current_placement_group is None or
         not should_capture_child_tasks_in_placement_group)
 
-    if should_create_placement_group:
-        # `should_create_placement_group` is always True when using alpa alone.
-        # `should_create_placement_group` can be false when integrated with Tune
-        additional_resources_per_host = (additional_resources_per_host or {})
-        bundles = [{
-            "CPU": 1,
-            "GPU": host_num_devices[i],
-            **additional_resources_per_host
-        } for i in range(num_hosts)]
-
-        # Alpa Placement Group: `SPREAD` strategy is required
-        # https://docs.ray.io/en/latest/ray-core/placement-group.html#strategy-types
-        # Each bundle must be scheduled in a separate node.
-        strategy = "SPREAD"
-
-        placement_group = ray.util.placement_group(bundles,
-                                                   strategy=strategy,
-                                                   name=name or "")
-        logger.debug("Waiting for placement group to start.")
-        timeout = env_integer(PLACEMENT_GROUP_TIMEOUT_S_ENV, 100)
-        ready, _ = ray.wait([placement_group.ready()], timeout=timeout)
-        if ready:
-            logger.debug("Placement group has started.")
-        else:
-            raise TimeoutError(
-                "Placement group creation timed out. Make sure your "
-                "cluster either has enough resources or use an "
-                "autoscaling cluster. If you are running on a cluster, "
-                "make sure you specify an address in `ray.init()`, for example,"
-                ' `ray.init("auto")`. You can also increase the timeout by '
-                "setting the ALPA_PLACEMENT_GROUP_TIMEOUT_S environment "
-                "variable. Current resources available: "
-                f"{ray.available_resources()}, resources requested by "
-                f"the placement group: {placement_group.bundle_specs}")
-        return placement_group
-    else:
+    if not should_create_placement_group:
         return current_placement_group
+    # `should_create_placement_group` is always True when using alpa alone.
+    # `should_create_placement_group` can be false when integrated with Tune
+    additional_resources_per_host = (additional_resources_per_host or {})
+    bundles = [{
+        "CPU": 1,
+        "GPU": host_num_devices[i],
+        **additional_resources_per_host
+    } for i in range(num_hosts)]
+
+    # Alpa Placement Group: `SPREAD` strategy is required
+    # https://docs.ray.io/en/latest/ray-core/placement-group.html#strategy-types
+    # Each bundle must be scheduled in a separate node.
+    strategy = "SPREAD"
+
+    placement_group = ray.util.placement_group(bundles,
+                                               strategy=strategy,
+                                               name=name or "")
+    logger.debug("Waiting for placement group to start.")
+    timeout = env_integer(PLACEMENT_GROUP_TIMEOUT_S_ENV, 100)
+    ready, _ = ray.wait([placement_group.ready()], timeout=timeout)
+    if ready:
+        logger.debug("Placement group has started.")
+    else:
+        raise TimeoutError(
+            "Placement group creation timed out. Make sure your "
+            "cluster either has enough resources or use an "
+            "autoscaling cluster. If you are running on a cluster, "
+            "make sure you specify an address in `ray.init()`, for example,"
+            ' `ray.init("auto")`. You can also increase the timeout by '
+            "setting the ALPA_PLACEMENT_GROUP_TIMEOUT_S environment "
+            "variable. Current resources available: "
+            f"{ray.available_resources()}, resources requested by "
+            f"the placement group: {placement_group.bundle_specs}")
+    return placement_group
 
 
 def get_bundle_idx(placement_group: PlacementGroup, node_ips: List[str]):
@@ -1570,10 +1545,7 @@ def get_bundle_idx(placement_group: PlacementGroup, node_ips: List[str]):
     # node IP -> bundle index
     bundle_ip2idx = {bundle_ips[i]: i for i in node_bundle_idx_list}
 
-    # sorted bundle index according to the node IP list given
-    sorted_bundle_idx = [bundle_ip2idx[ip] for ip in node_ips]
-
-    return sorted_bundle_idx
+    return [bundle_ip2idx[ip] for ip in node_ips]
 
 
 def retrieve_placement_group():
@@ -1584,19 +1556,14 @@ def retrieve_placement_group():
     alpa, retrieve the global placement group (case II).
 
     """
-    # case 1:
-    # Get the current placement group which a task or actor is using
-    current_placement_group = get_current_placement_group()
-    if current_placement_group:
+    if current_placement_group := get_current_placement_group():
         return current_placement_group
 
     # case 2:
     # Get the placement group created when alpa.init('ray')
     global_cluster = device_mesh.global_cluster
     if global_cluster and global_cluster.placement_group:
-        alpa_placement_group = global_cluster.placement_group
-        return alpa_placement_group
-
+        return global_cluster.placement_group
     raise ValueError(
         "The alpa training is not inside the ray tasks or actor or "
         "the placement group is not created yet. One reason is that "
@@ -1628,9 +1595,7 @@ def map_to_nparray(tree: PyTreeDef):
     """Map a PyTree to a PyTree of numpy array."""
 
     def convert_to_nparray(x):
-        if hasattr(x, "__array__"):
-            return np.asarray(x)
-        return x
+        return np.asarray(x) if hasattr(x, "__array__") else x
 
     return jax.tree_map(convert_to_nparray, tree)
 
@@ -1638,21 +1603,17 @@ def map_to_nparray(tree: PyTreeDef):
 def compute_bytes(pytree: PyTreeDef):
     """Compute the total bytes of arrays in a pytree."""
     flatten_args, _ = tree_flatten(pytree)
-    ret = 0
-    for x in flatten_args:
-        if hasattr(x, "shape"):
-            ret += np.prod(x.shape) * x.dtype.itemsize
-    return ret
+    return sum(
+        np.prod(x.shape) * x.dtype.itemsize
+        for x in flatten_args
+        if hasattr(x, "shape")
+    )
 
 
 def compute_param_number(pytree: PyTreeDef):
     """Compute the total number of elements in a pytree."""
     flatten_args, _ = tree_flatten(pytree)
-    ret = 0
-    for x in flatten_args:
-        if hasattr(x, "shape"):
-            ret += np.prod(x.shape)
-    return ret
+    return sum(np.prod(x.shape) for x in flatten_args if hasattr(x, "shape"))
 
 
 def compute_gpt_tflops(batch_size,
@@ -1678,13 +1639,7 @@ def compute_gpt_tflops(batch_size,
                   (hidden_size**2) * num_layers * (1 + seq_len /
                                                    (6 * hidden_size)) +
                   6 * batch_size * seq_len * hidden_size * vocab_size)
-    # Note: The above formula does not count the first embedding table lookup
-    # because it is a sparse operation.
-    # If we use dense dot to compute the first embedding table lookup,
-    # then the last term in total_flops should be
-    # "+ 10 * batch_size * seq_len * hidden_size * vocab_size".
-    tflops = total_flop / latency / num_gpus / 1e12
-    return tflops
+    return total_flop / latency / num_gpus / 1e12
 
 
 _DISABLE_NUMBA = False

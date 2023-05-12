@@ -25,9 +25,6 @@ def gen_dependency_with_stages(
         for var in stage.invars:
             if var in var_stage_id:
                 d[i, var_stage_id[var]] = 1
-            else:
-                # Assume the var is from global_invars
-                pass
         for var in stage.outvars:
             var_stage_id[var] = i
 
@@ -91,10 +88,10 @@ class PipelineSchedule(metaclass=ABCMeta):
         """Pretty print the schedule."""
         printout = "\n"
         device_str = " ".join([f"d{d:<8}" for d in range(self.num_mesh)])
-        printout = printout + f"Clock k : {device_str} \n"
+        printout += f"Clock k : {device_str} \n"
         for clock, scheds in enumerate(self.schedules):
             sched_str = " ".join([f"{str(sched):<8}" for sched in scheds])
-            printout = printout + f"Clock {clock:<2}: {sched_str} \n"
+            printout = f"{printout}Clock {clock:<2}: {sched_str} \n"
         if to_print:
             logger.info(printout)
         return printout
@@ -293,7 +290,7 @@ class PipeDreamFlush(PipelineSchedule):
 
         # equal to gpipe
         num_clock = (m + n - 1) * 2
-        schedules = [[None] * n for k in range(num_clock)]
+        schedules = [[None] * n for _ in range(num_clock)]
 
         num_warmup_microbatches = [min(n - i - 1, m) for i in range(n)]
         num_microbatches_remaining = [m - i for i in num_warmup_microbatches]
@@ -487,10 +484,11 @@ class OverlapFriendlyPipeDreamSchedule(PipeDreamFlush):
             fwd_idx = -1
             bwd_idx = -1
             for exec_idx in range(batch * 2):
-                if exec_idx >= num_warmup_batch:
-                    if ((is_forward and bwd_idx < batch - 1) or
-                        (not is_forward and fwd_idx < batch - 1)):
-                        is_forward = not is_forward
+                if exec_idx >= num_warmup_batch and (
+                    (is_forward and bwd_idx < batch - 1)
+                    or (not is_forward and fwd_idx < batch - 1)
+                ):
+                    is_forward = not is_forward
                 if is_forward:
                     fwd_idx += 1
                     schedules[tic][mesh_idx] = (fwd_idx, fwd_stage_idx)

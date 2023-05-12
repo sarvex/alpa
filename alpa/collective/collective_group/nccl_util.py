@@ -112,8 +112,7 @@ def create_nccl_communicator(world_size, nccl_unique_id, rank):
     Returns:
         comm (nccl.ncclComm_t): an NCCL communicator.
     """
-    comm = NcclCommunicator(world_size, nccl_unique_id, rank)
-    return comm
+    return NcclCommunicator(world_size, nccl_unique_id, rank)
 
 
 def get_nccl_reduce_op(reduce_op):
@@ -133,9 +132,8 @@ def get_nccl_tensor_dtype(tensor):
     """Return the corresponded NCCL dtype given a tensor."""
     if isinstance(tensor, cupy.ndarray):
         return NUMPY_NCCL_DTYPE_MAP[tensor.dtype.type]
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            return TORCH_NCCL_DTYPE_MAP[tensor.dtype]
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        return TORCH_NCCL_DTYPE_MAP[tensor.dtype]
     raise ValueError(f"Unsupported tensor type. Got: {type(tensor)}. "
                      "Supported GPU tensor types are: torch.Tensor, "
                      "cupy.ndarray.")
@@ -145,9 +143,8 @@ def get_cupy_tensor_dtype(tensor):
     """Return the corresponded Cupy dtype given a tensor."""
     if isinstance(tensor, cupy.ndarray):
         return tensor.dtype.type
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            return TORCH_NUMPY_DTYPE_MAP[tensor.dtype]
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        return TORCH_NUMPY_DTYPE_MAP[tensor.dtype]
     raise ValueError(f"Unsupported tensor type. Got: {type(tensor)}. "
                      "Supported GPU tensor types are: torch.Tensor, "
                      "cupy.ndarray.")
@@ -159,12 +156,11 @@ def get_tensor_ptr(tensor):
         return tensor.data.ptr
     if isinstance(tensor, numpy.ndarray):
         return tensor.data
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            if not tensor.is_cuda:
-                raise RuntimeError("Torch tensor must be on GPU "
-                                   "when using NCCL collectives.")
-            return tensor.data_ptr()
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        if not tensor.is_cuda:
+            raise RuntimeError("Torch tensor must be on GPU "
+                               "when using NCCL collectives.")
+        return tensor.data_ptr()
     raise ValueError(f"Unsupported tensor type. Got: {type(tensor)}. "
                      "Supported GPU tensor types are: torch.Tensor, "
                      "cupy.ndarray.")
@@ -174,9 +170,8 @@ def get_tensor_n_elements(tensor):
     """Return the number of elements in a tensor."""
     if isinstance(tensor, (cupy.ndarray, numpy.ndarray)):
         return tensor.size
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            return torch.numel(tensor)
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        return torch.numel(tensor)
     raise ValueError(f"Unsupported tensor type. Got: {type(tensor)}. "
                      "Supported GPU tensor types are: torch.Tensor, "
                      "cupy.ndarray.")
@@ -186,9 +181,8 @@ def get_tensor_shape(tensor):
     """Return the shape of the tensor as a list."""
     if isinstance(tensor, cupy.ndarray):
         return list(tensor.shape)
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            return list(tensor.size())
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        return list(tensor.size())
     raise ValueError(f"Unsupported tensor type. Got: {type(tensor)}. "
                      "Supported GPU tensor types are: torch.Tensor, "
                      "cupy.ndarray.")
@@ -200,9 +194,8 @@ def get_tensor_strides(tensor):
         return [
             int(stride / tensor.dtype.itemsize) for stride in tensor.strides
         ]
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            return list(tensor.stride())
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        return list(tensor.stride())
     raise ValueError(f"Unsupported tensor type. Got: {type(tensor)}. "
                      "Supported GPU tensor types are: torch.Tensor, "
                      "cupy.ndarray.")
@@ -275,5 +268,4 @@ def get_tensor_device_list(tensors):
         raise RuntimeError(
             "Expect a list of tensors each locates on a GPU device. "
             f"Got: '{type(tensors)}'.")
-    devices = [get_tensor_device(t) for t in tensors]
-    return devices
+    return [get_tensor_device(t) for t in tensors]

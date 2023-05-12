@@ -24,7 +24,7 @@ from benchmark_parallel_utils import (
 def report_pipeline_breakdown(executable, timer_names, niter):
     overall_costs = executable.get_execution_time_costs(timer_name="overall")
 
-    print(">>> overall: {}...".format(overall_costs))
+    print(f">>> overall: {overall_costs}...")
     other_percentage = [100.0] * niter
     other = overall_costs
     for timer_name in timer_names:
@@ -38,18 +38,16 @@ def report_pipeline_breakdown(executable, timer_names, niter):
         other_percentage = [
             remain - percentage[i] for i, remain in enumerate(other_percentage)
         ]
-        strs = []
-        for i, cost in enumerate(costs):
-            strs.append(str(cost) + f" ({percentage[i]:.1f}) ")
+        strs = [f"{str(cost)} ({percentage[i]:.1f}) " for i, cost in enumerate(costs)]
         print_string = ",".join(strs)
-        print(">>> {}: {}".format(timer_name, print_string))
+        print(f">>> {timer_name}: {print_string}")
 
-    # print unknown overhead
-    strs = []
-    for i, remain in enumerate(other):
-        strs.append(" " + str(remain) + f" ({other_percentage[i]:.1f})")
+    strs = [
+        f" {str(remain)}" + f" ({other_percentage[i]:.1f})"
+        for i, remain in enumerate(other)
+    ]
     print_string = ",".join(strs)
-    print(">>> {}: {}".format("Others: ", print_string))
+    print(f">>> Others: : {print_string}")
 
 
 def create_train_state(rngkey, model, batch, dtype):

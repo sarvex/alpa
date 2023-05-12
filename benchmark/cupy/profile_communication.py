@@ -90,7 +90,7 @@ class GpuHost:
         number = min(max(10, int((1 << 30) / (size * dtype().nbytes))), 1 << 13)
         cp.cuda.Device(0).synchronize()
         tic = time.time()
-        for i in range(number):
+        for _ in range(number):
             do_all_reduce(comm, in_buffer, out_buffer)
         cp.cuda.Device(0).synchronize()
         toc = time.time()
@@ -117,7 +117,7 @@ class GpuHost:
         number = min(max(10, int((1 << 30) / (size * dtype().nbytes))), 1 << 13)
         cp.cuda.Device(0).synchronize()
         tic = time.time()
-        for i in range(number):
+        for _ in range(number):
             do_all_gather(comm, in_buffer, out_buffer)
         cp.cuda.Device(0).synchronize()
         toc = time.time()
@@ -144,7 +144,7 @@ class GpuHost:
         number = min(max(10, int((1 << 30) / (size * dtype().nbytes))), 1 << 13)
         cp.cuda.Device(0).synchronize()
         tic = time.time()
-        for i in range(number):
+        for _ in range(number):
             do_send_recv(comm, buf, self.rank == from_rank)
         cp.cuda.Device(0).synchronize()
         toc = time.time()
@@ -154,8 +154,9 @@ class GpuHost:
             array_size = size * dtype().nbytes
             communication_size = array_size
             bandwidth = communication_size / time_cost
-            print(f"SendRecv: {groups}\tBytes: {array_size / GB:.5f} GB\t"
-                  f"Time: {time_cost:.5f} s\tBandwidth: {bandwidth / (1<<30):.2f} GB/s")
+            print(
+                f"SendRecv: {groups}\tBytes: {communication_size / GB:.5f} GB\tTime: {time_cost:.5f} s\tBandwidth: {bandwidth / (1 << 30):.2f} GB/s"
+            )
 
     def profile_multi_send_recv(self, size, dtype, groups):
         comm = self.init_communicator(groups)
@@ -166,8 +167,8 @@ class GpuHost:
 
         assert all(len(group) == 2 for group in groups)
 
-        senders = set(group[0] for group in groups)
-        receivers = set(group[1] for group in groups)
+        senders = {group[0] for group in groups}
+        receivers = {group[1] for group in groups}
 
         buf = cp.ones(int(size), dtype)
         buf_sync = cp.ones(1, dtype)
@@ -179,7 +180,7 @@ class GpuHost:
         number = min(max(10, int((1 << 30) / (size * dtype().nbytes))), 1 << 13)
         cp.cuda.Device(0).synchronize()
         tic = time.time()
-        for i in range(number):
+        for _ in range(number):
             do_send_recv(comm, buf, self.rank in senders)
         do_all_reduce(comm_sync, buf_sync, buf_sync)
         cp.cuda.Device(0).synchronize()
@@ -190,8 +191,9 @@ class GpuHost:
             array_size = size * dtype().nbytes
             communication_size = array_size
             bandwidth = len(groups) * communication_size / time_cost
-            print(f"SendRecv: {groups}\tBytes: {array_size / GB:.5f} GB\t"
-                  f"Time: {time_cost:.5f} s\tBandwidth: {bandwidth / (1<<30):.2f} GB/s")
+            print(
+                f"SendRecv: {groups}\tBytes: {communication_size / GB:.5f} GB\tTime: {time_cost:.5f} s\tBandwidth: {bandwidth / (1 << 30):.2f} GB/s"
+            )
 
     def profile(self):
         # All-reduce

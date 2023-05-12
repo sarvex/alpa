@@ -98,9 +98,7 @@ def parallelize(fun: Optional[Callable] = None,
         return ParallelizedFunc(fun, static_argnums, donate_argnums,
                                 batch_argnums, method)
 
-    if fun is None:
-        return decorate_fun
-    return decorate_fun(fun)
+    return decorate_fun if fun is None else decorate_fun(fun)
 
 
 class ParallelizedFunc:
@@ -184,8 +182,7 @@ class ParallelizedFunc:
         if donate_argnums == "auto":
             donate_argnums = auto_donate_argnums(args)
 
-        donate_tuple = rebase_donate_argnums(donate_argnums, static_argnums)
-        if donate_tuple:
+        if donate_tuple := rebase_donate_argnums(donate_argnums, static_argnums):
             donated_invars = donation_vector(donate_tuple, dyn_args, kwargs)
         else:
             donated_invars = (False,) * len(args_flat)

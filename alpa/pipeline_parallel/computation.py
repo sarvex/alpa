@@ -107,8 +107,7 @@ class JaxPipelineComputation(PipelineComputation):
             outvars=self.outvars,
             eqns=self.eqns,
         )
-        closed_jaxpr = ClosedJaxpr(jaxpr, list(self.consts_dir.values()))
-        return closed_jaxpr
+        return ClosedJaxpr(jaxpr, list(self.consts_dir.values()))
 
     def get_runnable(self, mesh=None):
         """Return a JIT callable of the pipeline computation."""
@@ -136,10 +135,9 @@ class JaxPipelineComputation(PipelineComputation):
         assert tuple(self.eqns[-1].outvars) == tuple(outvars)
         pre_marker_vars = self.eqns[-1].invars
         pre_marker_vars = {v: idx for idx, v in enumerate(pre_marker_vars)}
-        final_order = []
-        for inv in self.invars:
-            if inv in pre_marker_vars:
-                final_order.append(pre_marker_vars[inv])
+        final_order = [
+            pre_marker_vars[inv] for inv in self.invars if inv in pre_marker_vars
+        ]
         for eqn in self.eqns:
             for var in eqn.outvars:
                 if not isinstance(var, DropVar) and var in pre_marker_vars:
@@ -311,8 +309,9 @@ class XlaShardedPipelineComputation(PipelineComputation):
         donatable_outvars = OrderedSet(self.outvars[num_donated:])
         donated_invars = []
         donated_outvars = []
-        var_indices = dict(zip(self.outvars, range(len(self.outvars))))
-        var_indices.update(dict(zip(self.invars, range(len(self.invars)))))
+        var_indices = dict(zip(self.outvars, range(len(self.outvars)))) | zip(
+            self.invars, range(len(self.invars))
+        )
         for idx, invar in enumerate(self.invars):
             if invar not in donatable:
                 # not donatable
@@ -443,11 +442,9 @@ def mark_missing_vars_in_backward_computation_pipeline_marks(
     assert len(computations) % 2 == 0.
     num_forward_computations = len(computations) // 2
 
-    var_computation_id = {}
-    for var in global_invars:
-        if not isinstance(var, Literal):
-            var_computation_id[var] = -1
-
+    var_computation_id = {
+        var: -1 for var in global_invars if not isinstance(var, Literal)
+    }
     computation_marked_to_unmarked_invars = [{} for _ in computations]
     computation_weight_invars = [{} for _ in computations]
     computation_additional_invars = [OrderedSet() for _ in computations]
@@ -683,18 +680,19 @@ def generate_computations_from_modules(
         stage_plan) -> Sequence[XlaShardedPipelineComputation]:
     """Generate pipeline computation from HLO modules."""
     module_dict = dict(zip(computation_names, computation_hlos))
-    computations = [
+    return [
         XlaShardedPipelineComputation.from_auto_sharded_computation(
             sharding_annotated_hlo=module_dict[computation.name],
             jax_pipeline_computation=computation,
             stage_plan=stage_plan,
             donated_invars=donate_invars,
             acc_grad_outvars=acc_grad_outvars,
-            donatables=donatables)
+            donatables=donatables,
+        )
         for computation, donate_invars, donatables in zip(
-            jax_computations, donate_invars, donatable_lists)
+            jax_computations, donate_invars, donatable_lists
+        )
     ]
-    return computations
 
 
 def generate_sharded_xla_computations_arguments(
@@ -715,7 +713,7 @@ def generate_sharded_xla_computations_arguments(
     consts_dir = {}
     for computation, donation in zip(jax_computations,
                                      computation_donate_invars):
-        consts_dir.update(computation.consts_dir)
+        consts_dir |= computation.consts_dir
         # Do not add local invars into the invars
         invars.update([var for var in computation.invars if var not in outvars])
         outvars.update(computation.outvars)
@@ -812,7 +810,7 @@ def rewrite_hook(eqns, gensym_fn):
         if ("mark_type" in eqn.params and eqn.params["mark_type"] == "hook"):
             used_vars = OrderedSet()
             defined_vars = OrderedSet()
-            for e in eqns[0:idx]:
+            for e in eqns[:idx]:
                 defined_vars.update(
                     [v for v in e.outvars if not isinstance(v, DropVar)])
             for e in eqns[idx + 1:]:
@@ -865,19 +863,24 @@ def merge_unmarked_with_call(jaxprs: Sequence[ClosedJaxpr],
     for stage_name, closed_jaxpr in zip(names, jaxprs):
         invars.update(closed_jaxpr.jaxpr.invars)
         intermediates.update(closed_jaxpr.jaxpr.outvars)
-        const_dir.update(zip(closed_jaxpr.jaxpr.constvars, closed_jaxpr.consts))
+        const_dir |= zip(closed_jaxpr.jaxpr.constvars, closed_jaxpr.consts)
         jaxpr = closed_jaxpr.jaxpr
 
         sym_invars = [gensym_fn(var.aval) for var in jaxpr.invars]
         sym_outvars = [gensym_fn(var.aval) for var in jaxpr.outvars]
-        eqns.append(
-            mark_pipeline_jaxpreqn(jaxpr.invars, sym_invars, stage_name,
-                                   "start"))
-        eqns.append(
-            _wrap_with_call(closed_jaxpr, sym_invars, sym_outvars, stage_name))
-        eqns.append(
-            mark_pipeline_jaxpreqn(sym_outvars, jaxpr.outvars, stage_name,
-                                   "end"))
+        eqns.extend(
+            (
+                mark_pipeline_jaxpreqn(
+                    jaxpr.invars, sym_invars, stage_name, "start"
+                ),
+                _wrap_with_call(
+                    closed_jaxpr, sym_invars, sym_outvars, stage_name
+                ),
+                mark_pipeline_jaxpreqn(
+                    sym_outvars, jaxpr.outvars, stage_name, "end"
+                ),
+            )
+        )
     invars.difference_update(intermediates)
     # handle donation
     num_donated = 0
@@ -892,19 +895,22 @@ def merge_unmarked_with_call(jaxprs: Sequence[ClosedJaxpr],
 
 
 def _wrap_by_marker(jaxpr: Jaxpr, name, gensym_fn):
-    eqns = []
     new_invars = list(jaxpr.invars)
     new_outvars = list(jaxpr.outvars)
     sym_invars = [gensym_fn(var.aval) for var in new_invars]
     sym_outvars = [gensym_fn(var.aval) for var in new_outvars]
-    eqns.append(mark_pipeline_jaxpreqn(new_invars, sym_invars, name, "start"))
+    eqns = [mark_pipeline_jaxpreqn(new_invars, sym_invars, name, "start")]
     params = dict(name=name,
                   call_jaxpr=Jaxpr([], new_invars + jaxpr.constvars,
                                    new_outvars, jaxpr.eqns))
-    eqns.append(
-        new_jaxpr_eqn(sym_invars + jaxpr.constvars, sym_outvars, named_call_p,
-                      params))
-    eqns.append(mark_pipeline_jaxpreqn(sym_outvars, new_outvars, name, "end"))
+    eqns.extend(
+        (
+            new_jaxpr_eqn(
+                sym_invars + jaxpr.constvars, sym_outvars, named_call_p, params
+            ),
+            mark_pipeline_jaxpreqn(sym_outvars, new_outvars, name, "end"),
+        )
+    )
     return Jaxpr(list(jaxpr.constvars), list(jaxpr.invars), new_outvars, eqns)
 
 
@@ -1031,9 +1037,8 @@ def get_local_donation_mapping_and_add_missing_invars(computation,
     new_invars = list(computation.invars)
     new_outvars = list(computation.outvars)
     new_eqns = list(computation.eqns)
-    appended_invars = list(appended_invars)
-    if appended_invars:
-        new_invars = new_invars + appended_invars
+    if appended_invars := list(appended_invars):
+        new_invars += appended_invars
         pipe_start = new_eqns[0]
         new_eqns[0] = mark_pipeline_jaxpreqn(
             pipe_start.invars + appended_invars, pipe_start.outvars +
@@ -1136,5 +1141,4 @@ def get_donatable_intermediate(stages: Sequence[JaxPipelineComputation],
                 donatable.add(invar)  # is a main copy never used
         used.update(stage.invars)
         donatable_list.append(donatable)
-    donatable_list = list(reversed(donatable_list))
-    return donatable_list
+    return list(reversed(donatable_list))

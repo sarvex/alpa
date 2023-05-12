@@ -156,35 +156,28 @@ def _get_delayed_eqns(compute_eqns, layer_invars, pipeline_outvars, gensym_fn):
             else:
                 out_marker = True
             new_compute_eqns.append(eqn)
+        elif len(outvars) == 0 and out_marker:
+            continue
+        elif not used_outvars and out_marker:
+            cross_layer_grad_eqns.append(eqn)
+            continue
+        elif marked_vars.issuperset(used_outvars):
+            # eqn is marked if all outvars are marked, then mark its invars.
+            marked_vars.update(invars)
+            new_compute_eqns.append(eqn)
         else:
-            # we don't want to do dce here, because it may make its operand be
-            # considered as cross layer grad, and then moved across microbatch
-            # boundary, which is harder to analyze.
-            if len(outvars) == 0 and out_marker:
-                continue
-            # only if an eqn is not used and is out marker will be it moved
-            # after microbatch boundary. Those inside a microbatch boundary is
-            # handled by later DCE.
-            elif not used_outvars and out_marker:
+            assert not marked_vars.intersection(
+                outvars), f"'{eqn}' is partially marked."
+            if layer_invars.intersection(outvars):
+                # move the marked var to the latest stage producing some of
+                # its invars.
+                moved_to_layer_eqns.append(eqn)
+                # update layer invars and marked vars.
+                layer_invars.update(invars)
+                marked_vars.update(outvars)
+            else:
                 cross_layer_grad_eqns.append(eqn)
                 continue
-            elif marked_vars.issuperset(used_outvars):
-                # eqn is marked if all outvars are marked, then mark its invars.
-                marked_vars.update(invars)
-                new_compute_eqns.append(eqn)
-            else:
-                assert not marked_vars.intersection(
-                    outvars), f"'{eqn}' is partially marked."
-                if layer_invars.intersection(outvars):
-                    # move the marked var to the latest stage producing some of
-                    # its invars.
-                    moved_to_layer_eqns.append(eqn)
-                    # update layer invars and marked vars.
-                    layer_invars.update(invars)
-                    marked_vars.update(outvars)
-                else:
-                    cross_layer_grad_eqns.append(eqn)
-                    continue
         used_vars.update(invars)
 
     new_compute_eqns = list(reversed(new_compute_eqns))
@@ -207,10 +200,13 @@ def _rewrite_microbatch_bound(microbatch_bound, delayed_eqns, gensym_fn):
     Rewrite the microbatch bound because some eqns are moved from microbatched
     part of the graph to non-microbatched part.
     """
-    microbatch_bound_in_to_outs = {}
-    for invar, outvar in zip(microbatch_bound.invars, microbatch_bound.outvars):
-        if isinstance(invar, Var) and not isinstance(outvar, DropVar):
-            microbatch_bound_in_to_outs[invar] = outvar
+    microbatch_bound_in_to_outs = {
+        invar: outvar
+        for invar, outvar in zip(
+            microbatch_bound.invars, microbatch_bound.outvars
+        )
+        if isinstance(invar, Var) and not isinstance(outvar, DropVar)
+    }
     delayed_invars = OrderedSet()
     delayed_outvars = OrderedSet()
     for eqn in delayed_eqns:
@@ -326,7 +322,6 @@ def _remove_replicated_marked_var(closed_jaxpr: ClosedJaxpr):
                     elif inv in eqn_map:
                         var_map[outv] = eqn_map[inv]
                         continue
-                if isinstance(inv, Var):
                     eqn_map[inv] = outv
                 new_invars.append(inv)
                 new_outvars.append(outv)
@@ -447,7 +442,7 @@ def _rewrite_jaxpr_to_reduced_outputs(compute_jaxpr, to_reduce_pre_marker_outs,
         if eqn.primitive is pipeline_p:
             if eqn.params['mark_type'] == 'start':
                 pipe_start = eqn
-                for outvar in eqn.outvars:
+                for outvar in pipe_start.outvars:
                     if (not isinstance(outvar, DropVar) and
                             outvar in to_reduce_pre_marker_outs):
                         # collect to_reduce_pre_marker_outs in this computation
@@ -472,11 +467,15 @@ def _rewrite_jaxpr_to_reduced_outputs(compute_jaxpr, to_reduce_pre_marker_outs,
                 # add normal eqns
                 new_eqns.extend(pipe_eqns)
                 # add acc grad(adds)
-                for gradient in to_acc:
-                    new_eqns.append(
-                        new_jaxpr_eqn(
-                            [reduce_invar_post_pipe[gradient], gradient],
-                            [reduce_outvar_pre_pipe[gradient]], add_p, {}))
+                new_eqns.extend(
+                    new_jaxpr_eqn(
+                        [reduce_invar_post_pipe[gradient], gradient],
+                        [reduce_outvar_pre_pipe[gradient]],
+                        add_p,
+                        {},
+                    )
+                    for gradient in to_acc
+                )
                 # add grad created in this computation in pipeline end
                 new_pipe_end = mark_pipeline_jaxpreqn(
                     # pylint: disable=cell-var-from-loop
@@ -524,10 +523,11 @@ def compute_grad_to_accumulate_grad(
         return compute_jaxpr, microbatch_bound, {}
 
     post_to_pre_marker_outs = _get_post_to_pre_marker_mapping(compute_jaxpr)
-    to_reduce_pre_marker_outs = []
-    for var, reduced in zip(compute_jaxpr.jaxpr.outvars, reduction_vector):
-        if reduced:
-            to_reduce_pre_marker_outs.append(post_to_pre_marker_outs[var])
+    to_reduce_pre_marker_outs = [
+        post_to_pre_marker_outs[var]
+        for var, reduced in zip(compute_jaxpr.jaxpr.outvars, reduction_vector)
+        if reduced
+    ]
     # generate new variables
     reduced_invars = {
         outvar: gensym_fn(outvar.aval) for outvar in to_reduce_pre_marker_outs
@@ -602,11 +602,11 @@ def process_apply_gradient(apply_grad_jaxpr, microbatch_bound, pipeline_stages,
     gradvar_to_mesh = get_var_to_mesh(gradients, pipeline_stages, stage_to_mesh,
                                       apply_in_to_acc_out)
 
-    # update donation mapping
-    donation_mapping = {}
-    for idx, invar in enumerate(global_invars):
-        if donated_invars[idx]:
-            donation_mapping[invar] = global_outvars[idx]
+    donation_mapping = {
+        invar: global_outvars[idx]
+        for idx, invar in enumerate(global_invars)
+        if donated_invars[idx]
+    }
     # create outvar constraints
     outvar_mesh = _get_apply_grad_outvar_constraints(pipeline_stages,
                                                      stage_to_mesh,
@@ -815,11 +815,10 @@ def _forward_propagate_at_mesh(closed_jaxpr, eqn_mesh, var_mesh, aggressive):
             if invar_infered_at:
                 if eqn_infered_at is None:
                     eqn_infered_at = OrderedSet(invar_infered_at)
+                elif aggressive:
+                    eqn_infered_at.update(invar_infered_at)
                 else:
-                    if aggressive:
-                        eqn_infered_at.update(invar_infered_at)
-                    else:
-                        eqn_infered_at.intersection_update(invar_infered_at)
+                    eqn_infered_at.intersection_update(invar_infered_at)
         if eqn_infered_at:
             for var in eqn.outvars:
                 if not isinstance(var, DropVar):
@@ -860,7 +859,7 @@ def _apply_grad_group_vars(closed_jaxpr: ClosedJaxpr, var_mesh, num_mesh):
 
 
 # Binary operators that satisfies the associativity and commutativity
-_reducable_operators = set([add_p, and_p, or_p])
+_reducable_operators = {add_p, and_p, or_p}
 
 
 class ApplyGradRewriter:
@@ -904,14 +903,13 @@ class ApplyGradRewriter:
             if (len(self.var_mesh[k]) > 0 and k in self.var_def)
         ])
         q = list(has_color)
-        while len(q) > 0:
+        while q:
             for outv in _filter_droped(self.eqns[q[0]].outvars):
                 if outv not in self.var_use:
                     continue
                 used_eqns = self.var_use[outv]
                 has_color.update(used_eqns)
-                for e_id in used_eqns.difference(has_color):
-                    q.append(e_id)
+                q.extend(iter(used_eqns.difference(has_color)))
             q = q[1:]
 
         # Propagate the first round
@@ -1048,8 +1046,11 @@ class ApplyGradRewriter:
                 continue
             outv = eqn.outvars[0] if len(eqn.outvars) > 0 else None
             # insert new eqns before the previous last available eqn
-            if (not (outv is None or isinstance(outv, DropVar)) and
-                    outv in new_eqns_before_var):
+            if (
+                outv is not None
+                and not isinstance(outv, DropVar)
+                and outv in new_eqns_before_var
+            ):
                 new_eqns.extend(new_eqns_before_var[outv])
             else:
                 new_eqns.append(eqn)
@@ -1095,10 +1096,7 @@ class ApplyGradRewriter:
 
 
 def _no_allreduce(eqns):
-    for eqn in eqns:
-        if eqn.primitive == cross_mesh_allreduce_p:
-            return False
-    return True
+    return all(eqn.primitive != cross_mesh_allreduce_p for eqn in eqns)
 
 
 def slice_apply_gradient(closed_jaxpr: ClosedJaxpr, grad_mesh: Dict[Var, int],
@@ -1199,10 +1197,11 @@ def apply_grad_add_marker(jaxprs: Sequence[ClosedJaxpr],
     results = []
     outvar_map = {}
     for i, jaxpr in enumerate(jaxprs):
-        new_map = {}
-        for invar in jaxpr.jaxpr.invars:
-            if invar not in apply_in_to_acc_out:
-                new_map[invar] = gensym_fn(invar.aval)
+        new_map = {
+            invar: gensym_fn(invar.aval)
+            for invar in jaxpr.jaxpr.invars
+            if invar not in apply_in_to_acc_out
+        }
         for outvar in jaxpr.jaxpr.outvars:
             if not isinstance(outvar, Var):
                 raise NotImplementedError(
@@ -1238,7 +1237,7 @@ def apply_grad_add_marker(jaxprs: Sequence[ClosedJaxpr],
         else:
             new_jaxpr = clone_jaxpr(jaxpr, new_invars, new_outvars, new_eqns)
             results.append(new_jaxpr)
-    outvar_map.update(apply_in_to_acc_out)
+    outvar_map |= apply_in_to_acc_out
     return results, outvar_map
 
 

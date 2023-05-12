@@ -209,7 +209,7 @@ def run_auto_sharding_pass(
         memory_budget_per_device = -1
     assert hlo.is_unoptimized()
 
-    multiple_stages = return_mode in ["stages", "stages_and_hook"]
+    multiple_stages = return_mode in {"stages", "stages_and_hook"}
     num_devices = logical_mesh.num_devices
     build_random_seed = global_config.compile_random_seed
     compile_options = get_compile_options(
@@ -365,7 +365,7 @@ def run_auto_sharding_pass(
     elif return_mode == "stages_and_hook":
         return hlo_stage_names, hlo_stages, hooked_proto, stage_plan
     else:
-        raise ValueError("Invalid return mode: " + return_mode)
+        raise ValueError(f"Invalid return mode: {return_mode}")
 
 
 def run_spmd_partitioner_pass(
@@ -501,11 +501,11 @@ def _hlo_sharding_to_sharding_spec_no_tuple(
         tile_assignment = np.array(tile_assignment_devices).reshape(
             tile_assignment_dimensions)
 
-        tile_dims = []
-        for i in range(len(tile_assignment_dimensions)):
-            if tile_assignment_dimensions[i] != 1:
-                tile_dims.append(i)
-
+        tile_dims = [
+            i
+            for i in range(len(tile_assignment_dimensions))
+            if tile_assignment_dimensions[i] != 1
+        ]
         tile_dims_delta = []
         success = True
         for dim in tile_dims:
@@ -553,7 +553,7 @@ def _hlo_sharding_to_sharding_spec_no_tuple(
         sharding = (pxla.NoSharding(),) * len(aval.shape)
         mesh_mapping = (pxla.Replicated(np.prod(logical_mesh.shape)),)
     else:
-        raise NotImplementedError("Type: " + str(sharding_type))
+        raise NotImplementedError(f"Type: {str(sharding_type)}")
 
     return pxla.ShardingSpec(sharding, mesh_mapping)
 
@@ -568,15 +568,14 @@ def hlo_sharding_to_sharding_spec(
         np.arange(np.prod(logical_mesh_shape)).reshape(logical_mesh_shape))
     proto = hlo_sharding.to_proto()
     sharding_type, tuple_shardings = proto.type, proto.tuple_shardings
-    if sharding_type == xc.OpSharding.Type.TUPLE:
-        avals = aval
-        return [
-            _hlo_sharding_to_sharding_spec_no_tuple(shard, aval, logical_mesh)
-            for (shard, aval) in zip(tuple_shardings, avals)
-        ]
-    else:
+    if sharding_type != xc.OpSharding.Type.TUPLE:
         return _hlo_sharding_to_sharding_spec_no_tuple(proto, aval,
                                                        logical_mesh)
+    avals = aval
+    return [
+        _hlo_sharding_to_sharding_spec_no_tuple(shard, avals, logical_mesh)
+        for shard, avals in zip(tuple_shardings, avals)
+    ]
 
 
 def make_replicated_spec(
@@ -593,13 +592,9 @@ def call_solver_serialized_args(*args):
     info = ""
     try:
         ret = _call_solver_serialized_args(*args)
-    except AssertionError:
+    except Exception:
         ret = None
         info = str(traceback.format_exc()[:-1])
-    except Exception:  # pylint: disable=broad-except
-        ret = None
-        info = str(traceback.format_exc()[:-1])
-
     if ret is None:
         print(info)
 

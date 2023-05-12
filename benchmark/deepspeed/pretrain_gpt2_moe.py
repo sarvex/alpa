@@ -119,7 +119,7 @@ def model_provider():
     """Build the model."""
 
     print_rank_0('building GPT2 model ...')
-    see_memory_usage(f"Before Building Model", force=True)
+    see_memory_usage("Before Building Model", force=True)
     args = get_args()
 
     args.padded_vocab_size = int(os.environ.get("PYTHON_VOCAB_SIZE", 25600))
@@ -129,7 +129,7 @@ def model_provider():
                              config=args.deepspeed_config,
                              enabled=args.zero_stage==3):
         model = GPT2Model(num_tokentypes=0, parallel_output=True)
-    see_memory_usage(f"After Building Model", force=True)
+    see_memory_usage("After Building Model", force=True)
 
     if mpu.get_data_parallel_rank() == 0:
         billion_params = get_parameters_in_billions(model)
@@ -150,10 +150,7 @@ def get_batch(data_iterator):
     datatype = torch.int64
 
     # Broadcast data.
-    if data_iterator is not None:
-        data = next(data_iterator)
-    else:
-        data = None
+    data = next(data_iterator) if data_iterator is not None else None
     data_b = mpu.broadcast_data(keys, data, datatype)
 
     # Unpack.

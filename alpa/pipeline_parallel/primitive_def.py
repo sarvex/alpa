@@ -32,12 +32,13 @@ def mark_gradient(grad):
 
 def mark_pipeline_jaxpreqn(invars, outvars, name: str, mark_type: str):
     """Make a new jaxpr equation."""
-    if mark_type not in ("start", "end", "jvp_start", "jvp_end"):
+    if mark_type in {"start", "end", "jvp_start", "jvp_end"}:
+        return new_jaxpr_eqn(invars, outvars, pipeline_p, {
+            "name": name,
+            "mark_type": mark_type
+        })
+    else:
         raise ValueError(f"Unknown mark type: {mark_type}")
-    return new_jaxpr_eqn(invars, outvars, pipeline_p, {
-        "name": name,
-        "mark_type": mark_type
-    })
 
 
 def mark_hook_jaxpreqn(invars, outvars):
@@ -72,7 +73,7 @@ def xla_custom_call(c, call_name, op_name, *args):
     op_metadata = xc.OpMetadata(op_name=op_name)
     c.set_op_metadata(op_metadata)
 
-    if len(args) == 0:
+    if not args:
         # If the custom call is an empty marker, it cannot be annotated
         # by sharding propagation, so we set a sharding for it.
         sharding = xc.OpSharding()
@@ -167,9 +168,9 @@ def _pipeline_transpose(ct, *args, name, mark_type):
         else:
             ctan_marker_id.append(len(marker_inputs))
             marker_inputs.append(ctan)
-    res = pipeline_p.bind(*marker_inputs,
-                          name=name + "_backward",
-                          mark_type=transposed_mark_type)
+    res = pipeline_p.bind(
+        *marker_inputs, name=f"{name}_backward", mark_type=transposed_mark_type
+    )
     new_ct = []
     for i, (val, ctan) in enumerate(zip(args, ct)):
         if ctan_marker_id[i] == -1:

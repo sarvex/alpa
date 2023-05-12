@@ -43,7 +43,7 @@ def set_mode(new_mode: str):
     - Doesn't allow print in middle of graph
     - Supports dist training
     """
-    assert new_mode in ["local", "dist"]
+    assert new_mode in {"local", "dist"}
     if new_mode == "dist":
         torch.local_mode = False
     elif new_mode == "local":
@@ -51,10 +51,7 @@ def set_mode(new_mode: str):
 
 
 def mode():
-    if torch.local_mode:
-        return "local"
-    else:
-        return "dist"
+    return "local" if torch.local_mode else "dist"
 
 
 def functorch_value_and_grad(func: Callable,
@@ -106,7 +103,7 @@ def functorch_value_and_grad(func: Callable,
 
                 output = func(*args, **kwargs)
                 if has_aux:
-                    if not (isinstance(output, tuple) and len(output) == 2):
+                    if not isinstance(output, tuple) or len(output) != 2:
                         raise RuntimeError(
                             "value_and_grad(f)(*args): output of function f "
                             "should be a tuple: (output, aux) "
@@ -139,9 +136,7 @@ def functorch_value_and_grad(func: Callable,
                 if aux is not None:
                     aux = _undo_create_differentiable(aux, level)
 
-            if has_aux:
-                return (output, aux), grad_input
-            return output, grad_input
+            return ((output, aux), grad_input) if has_aux else (output, grad_input)
         finally:
             _grad_decrement_nesting()
 

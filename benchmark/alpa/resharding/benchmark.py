@@ -25,9 +25,7 @@ def benchmark_one_case(*args, use_separate_process=False, **kwargs):
                     kwargs=kwargs)
     p.start()
     p.join()
-    if p.exitcode != 0:
-        return -1, -1, [-1], -1, None
-    return result_namespace.result
+    return (-1, -1, [-1], -1, None) if p.exitcode != 0 else result_namespace.result
 
 
 def benchmark_n_to_m_suite():
@@ -43,8 +41,7 @@ def benchmark_n_to_m_suite():
     for case_name, benchmark_case in benchmark_cases.items():
         # Run one case
         for config in resharding_config_list:
-            print("Working on {}: {}, config: {}".format(
-                case_name, str(benchmark_case), str(config)))
+            print(f"Working on {case_name}: {str(benchmark_case)}, config: {str(config)}")
             one_result = benchmark_one_case(
                 benchmark_case.src_mesh_shape, benchmark_case.dst_mesh_shape,
                 benchmark_case.src_sharding_spec,
@@ -72,8 +69,7 @@ def benchmark_1_to_m_suite():
     for case_name, benchmark_case in benchmark_cases.items():
         # Run one case
         for config in resharding_config_list:
-            print("Working on {}: {}, config: {}".format(
-                case_name, str(benchmark_case), str(config)))
+            print(f"Working on {case_name}: {str(benchmark_case)}, config: {str(config)}")
             one_result = benchmark_one_case(
                 benchmark_case.src_mesh_shape, benchmark_case.dst_mesh_shape,
                 benchmark_case.src_sharding_spec,

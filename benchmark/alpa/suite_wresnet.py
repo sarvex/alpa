@@ -44,8 +44,9 @@ def get_num_auto_layers(model_name):
     elif wresnet_specs[model_name].num_layers == 101:
         return 33
     else:
-        raise ValueError("Unsupported number of layers: {}".format(
-            wresnet_specs[model_name].num_layers))
+        raise ValueError(
+            f"Unsupported number of layers: {wresnet_specs[model_name].num_layers}"
+        )
 
 
 def get_search_cases(model_name, max_global_batch_size, num_micro_batches_list):

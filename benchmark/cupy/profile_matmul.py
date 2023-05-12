@@ -35,12 +35,12 @@ def benchmark(n, k, m, dtype, init_method="ones"):
         b = cp.random.uniform(0, 1, (k, m)).astype(dtype)
     else:
         raise ValueError(f"Invalid method: {init_method}")
-    for i in range(warmup):
+    for _ in range(warmup):
         c = a @ b
 
     cp.cuda.Device(0).synchronize()
     tic = time.time()
-    for i in range(number):
+    for _ in range(number):
         cp.dot(a, b, c)
     cp.cuda.Device(0).synchronize()
     toc = time.time()

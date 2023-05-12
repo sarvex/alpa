@@ -130,8 +130,8 @@ def git_describe_version():
     else:
         dev_version = arr_info[0]
 
-    pub_ver = "%s.dev%s" % (dev_version, arr_info[1])
-    local_ver = "%s+%s" % (pub_ver, arr_info[2])
+    pub_ver = f"{dev_version}.dev{arr_info[1]}"
+    local_ver = f"{pub_ver}+{arr_info[2]}"
     return pub_ver, local_ver
 
 
@@ -142,20 +142,19 @@ def update(file_name, pattern, repl, dry_run=False):
     need_update = False
     with open(file_name) as file:
         for l in file:
-            result = re.findall(pattern, l)
-            if result:
+            if result := re.findall(pattern, l):
                 assert len(result) == 1
                 hit_counter += 1
                 if result[0] != repl:
                     l = re.sub(pattern, repl, l)
                     need_update = True
-                    print("%s: %s -> %s" % (file_name, result[0], repl))
+                    print(f"{file_name}: {result[0]} -> {repl}")
                 else:
-                    print("%s: version is already %s" % (file_name, repl))
+                    print(f"{file_name}: version is already {repl}")
 
             update.append(l)
     if hit_counter != 1:
-        raise RuntimeError("Cannot find version in %s" % file_name)
+        raise RuntimeError(f"Cannot find version in {file_name}")
 
     if need_update and not dry_run:
         with open(file_name, "w") as output_file:

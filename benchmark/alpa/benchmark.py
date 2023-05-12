@@ -77,7 +77,7 @@ def benchmark_suite(suite_name,
         parallel_args = benchmark_case.parallel_args
 
         # Run one case
-        print("Working on case: {}".format(str(benchmark_case)))
+        print(f"Working on case: {str(benchmark_case)}")
         result = benchmark_one_case(
             model_type,
             benchmark_case,

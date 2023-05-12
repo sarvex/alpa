@@ -56,9 +56,9 @@ def prepare_moe_input_and_model(benchmark_case,
             expert_group_size,
             batch_size * seq_len // num_micro_batches // 1 // rang_factor)
         if expected_expert_group_size != expert_group_size:
-            print("- Expected expert group size should be {}, "
-                  "but got {}. Will reset it".format(expected_expert_group_size,
-                                                     expert_group_size))
+            print(
+                f"- Expected expert group size should be {expected_expert_group_size}, but got {expert_group_size}. Will reset it"
+            )
             expert_group_size = expected_expert_group_size
 
     # Prepare input batch

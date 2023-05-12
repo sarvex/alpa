@@ -26,10 +26,10 @@ def _dfs_pytree(tree, prefix):
     paths = []
     if isinstance(tree, dict):
         for k, v in tree.items():
-            paths += _dfs_pytree(v, prefix + "." + str(k))
+            paths += _dfs_pytree(v, f"{prefix}.{str(k)}")
     elif isinstance(tree, (tuple, list)):
         for i, v in enumerate(tree):
-            paths += _dfs_pytree(v, prefix + "." + str(i))
+            paths += _dfs_pytree(v, f"{prefix}.{str(i)}")
     elif tree is not None:
         # Leaf node
         paths.append(prefix)

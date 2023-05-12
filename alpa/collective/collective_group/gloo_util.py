@@ -82,8 +82,7 @@ def create_gloo_context(rank, world_size):
     Returns:
         context (pygloo.Context): a GLOO context.
     """
-    context = pygloo.rendezvous.Context(rank, world_size)
-    return context
+    return pygloo.rendezvous.Context(rank, world_size)
 
 
 def get_gloo_reduce_op(reduce_op):
@@ -104,13 +103,12 @@ def get_gloo_tensor_dtype(tensor):
     """Return the corresponded GLOO dtype given a tensor."""
     if isinstance(tensor, numpy.ndarray):
         return NUMPY_GLOO_DTYPE_MAP[tensor.dtype.type]
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            if not tensor.is_cuda:
-                return TORCH_GLOO_DTYPE_MAP[tensor.dtype]
-            else:
-                raise ValueError("Expect torch CPU tensor. "
-                                 f"Got {tensor.device}.")
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        if not tensor.is_cuda:
+            return TORCH_GLOO_DTYPE_MAP[tensor.dtype]
+        else:
+            raise ValueError("Expect torch CPU tensor. "
+                             f"Got {tensor.device}.")
     raise ValueError("Unsupported tensor type. "
                      f"Got: {type(tensor)}.")
 
@@ -119,9 +117,8 @@ def get_numpy_tensor_dtype(tensor):
     """Return the corresponded Cupy dtype given a tensor."""
     if isinstance(tensor, numpy.ndarray):
         return tensor.dtype.type
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            return TORCH_NUMPY_DTYPE_MAP[tensor.dtype]
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        return TORCH_NUMPY_DTYPE_MAP[tensor.dtype]
     raise ValueError(f"Unsupported tensor type. Got: {type(tensor)}. "
                      "Supported CPU tensor types are: torch.Tensor, "
                      "numpy.ndarray.")
@@ -131,12 +128,11 @@ def get_tensor_ptr(tensor):
     """Return the pointer to the underlying memory storage of a tensor."""
     if isinstance(tensor, numpy.ndarray):
         return tensor.ctypes.data
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            if tensor.is_cuda:
-                raise RuntimeError("Torch tensor must be on CPU "
-                                   "when using GLOO collectives.")
-            return tensor.data_ptr()
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        if tensor.is_cuda:
+            raise RuntimeError("Torch tensor must be on CPU "
+                               "when using GLOO collectives.")
+        return tensor.data_ptr()
     raise ValueError(f"Unsupported tensor type. Got: {type(tensor)}. "
                      "Supported CPU tensor types are: torch.Tensor, "
                      "numpy.ndarray.")
@@ -146,27 +142,22 @@ def get_tensor_n_elements(tensor):
     """Return the number of elements in a tensor."""
     if isinstance(tensor, numpy.ndarray):
         return tensor.size
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            return torch.numel(tensor)
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        return torch.numel(tensor)
     raise ValueError("Unsupported tensor type. "
                      f"Got: {type(tensor)}.")
 
 
 def get_gloo_store_path(store_name):
     from ray._private.utils import get_ray_temp_dir  # pylint: disable=import-outside-toplevel
-    store_path = f"{get_ray_temp_dir()}_collective/gloo/{store_name}"
-    return store_path
+    return f"{get_ray_temp_dir()}_collective/gloo/{store_name}"
 
 
 def get_tensor_device(tensor):
     if isinstance(tensor, numpy.ndarray):
         return "cpu"
     elif torch_available() and isinstance(tensor, torch.Tensor):
-        if not tensor.is_cuda:
-            return "cpu"
-        else:
-            return "cuda"
+        return "cpu" if not tensor.is_cuda else "cuda"
     else:
         raise RuntimeError("Unrecognized tensor type: "
                            f"'{type(tensor)}'.")
@@ -176,9 +167,8 @@ def get_tensor_shape(tensor):
     """Return the shape of the tensor as a list."""
     if isinstance(tensor, numpy.ndarray):
         return list(tensor.shape)
-    if torch_available():
-        if isinstance(tensor, torch.Tensor):
-            return list(tensor.size())
+    if torch_available() and isinstance(tensor, torch.Tensor):
+        return list(tensor.size())
     raise ValueError(f"Unsupported tensor type. Got: {type(tensor)}. "
                      "Supported CPU tensor types are: torch.Tensor, "
                      "numpy.ndarray.")

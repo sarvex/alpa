@@ -38,7 +38,7 @@ def update_ds_config(filename, gradient_accumulation_steps):
     for i in range(len(lines)):
         if "gradient_accumulation_steps" in lines[i]:
             idx = lines[i].index(":")
-            lines[i] = lines[i][:idx] + f": {gradient_accumulation_steps},\n"
+            lines[i] = f"{lines[i][:idx]}: {gradient_accumulation_steps},\n"
 
     with open(filename, "w") as fout:
         fout.writelines(lines)
@@ -125,11 +125,7 @@ def benchmark_all(args):
             # gpt_options += "--synchronize-each-layer "
             # gpt_options += "--ontigious-checkpointing "
 
-        if args.nnodes > 1:
-            host_options = "--hostfile hostfile "
-        else:
-            host_options = ""
-
+        host_options = "--hostfile hostfile " if args.nnodes > 1 else ""
         work_dir= os.environ["DEEPSPEED_PATH"] + "/DeepSpeedExamples/Megatron-LM-v1.1.5-ZeRO3/"
         ret = run_cmd(f"PYTHONPATH={work_dir} PYTHON_VOCAB_SIZE={vocab_size} deepspeed "
                       f"{host_options}"

@@ -525,12 +525,11 @@ def slice_apply_grad_for_stage_construction(pipeline_layers, apply_grad_jaxpr,
                                             global_outvars, donated_invars,
                                             accumulator_mapping, gensym_func,
                                             inference_mode):
+    num_layers = len(pipeline_layers)
     if inference_mode:
-        num_layers = len(pipeline_layers)
         num_mesh = num_layers
         layer_to_mesh = list(range(num_mesh))
     else:
-        num_layers = len(pipeline_layers)
         assert len(pipeline_layers) % 2 == 0
         num_mesh = num_layers // 2
         layer_to_mesh = (list(range(num_mesh)) +

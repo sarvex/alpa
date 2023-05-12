@@ -30,9 +30,7 @@ class LocalPipelineRunner:
             invals (Dict[Var, Any], optional): Input value dict.
         """
         runnable = stage.get_runnable()
-        invals_list = []
-        for var in stage.invars:
-            invals_list.append(invals[var])
+        invals_list = [invals[var] for var in stage.invars]
         outvals_list = runnable(*invals_list)
         outvals = dict(zip(stage.outvars, outvals_list))
         self.env.update(outvals)

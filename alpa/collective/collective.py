@@ -133,7 +133,7 @@ class GroupManager:
         g.destroy_group()
 
         # Release the detached actors spawned by `create_collective_group()`
-        name = "info_" + group_name
+        name = f"info_{group_name}"
         try:
             store = ray.get_actor(name)
             ray.kill(store)
@@ -202,7 +202,7 @@ def create_collective_group(actors,
     backend = types.Backend(backend)
     _check_backend_availability(backend)
 
-    name = "info_" + group_name
+    name = f"info_{group_name}"
     try:
         ray.get_actor(name)
         raise RuntimeError("Trying to initialize a group twice.")
@@ -223,15 +223,15 @@ def create_collective_group(actors,
     if world_size <= 0:
         raise RuntimeError("World size must be greater than zero. "
                            f"Got '{world_size}'.")
-    if not all(ranks) >= 0:
+    if all(ranks) < 0:
         raise RuntimeError("Ranks must be non-negative.")
-    if not all(ranks) < world_size:
+    if all(ranks) >= world_size:
         raise RuntimeError("Ranks cannot be greater than world_size.")
 
     # avoid a circular dependency
     from alpa.collective.util import Info  # pylint: disable=import-outside-toplevel
     # store the information into a NamedActor that can be accessed later.
-    name = "info_" + group_name
+    name = f"info_{group_name}"
     actors_id = [a._ray_actor_id for a in actors]  # pylint: disable=protected-access
     # TODO (Dacheng): how do we recycle this name actor?
     info = Info.options(name=name, lifetime="detached").remote()
@@ -739,7 +739,7 @@ def _check_and_get_group(group_name):
         try:
             # if the information is stored in an Info object,
             # get and create the group.
-            name = "info_" + group_name
+            name = f"info_{group_name}"
             info_actor = ray.get_actor(name=name)
             ids, world_size, rank, backend = ray.get(
                 info_actor.get_info.remote())
@@ -759,20 +759,19 @@ def _check_and_get_group(group_name):
             _group_mgr.create_collective_group(backend, world_size, r,
                                                group_name)
         except ValueError as exc:
-            # check if this group is initialized using options()
-            if ("collective_group_name" in os.environ and
-                    os.environ["collective_group_name"] == group_name):
-                rank = int(os.environ["collective_rank"])
-                world_size = int(os.environ["collective_world_size"])
-                backend = os.environ["collective_backend"]
-                _group_mgr.create_collective_group(backend, world_size, rank,
-                                                   group_name)
-            else:
+            if (
+                "collective_group_name" not in os.environ
+                or os.environ["collective_group_name"] != group_name
+            ):
                 raise RuntimeError(
                     f"The collective group '{group_name}' is not "
                     "initialized in the process.") from exc
-    g = _group_mgr.get_group_by_name(group_name)
-    return g
+            rank = int(os.environ["collective_rank"])
+            world_size = int(os.environ["collective_world_size"])
+            backend = os.environ["collective_backend"]
+            _group_mgr.create_collective_group(backend, world_size, rank,
+                                               group_name)
+    return _group_mgr.get_group_by_name(group_name)
 
 
 check_and_get_group = _check_and_get_group
@@ -802,12 +801,10 @@ def _check_single_tensor_input(tensor):
     """Check if the tensor is with a supported type."""
     if isinstance(tensor, (np.ndarray, xe.DeviceArray)):
         return
-    if types.cupy_available():
-        if isinstance(tensor, types.cp.ndarray):
-            return
-    if types.torch_available():
-        if isinstance(tensor, types.th.Tensor):
-            return
+    if types.cupy_available() and isinstance(tensor, types.cp.ndarray):
+        return
+    if types.torch_available() and isinstance(tensor, types.th.Tensor):
+        return
     raise RuntimeError(f"Unrecognized tensor type '{type(tensor)}'. "
                        "Supported types are: np.ndarray, torch.Tensor, "
                        "cupy.ndarray.")

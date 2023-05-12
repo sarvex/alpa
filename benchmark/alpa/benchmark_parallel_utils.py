@@ -225,13 +225,13 @@ def benchmark_training_executable(niter,
         global_config.use_dummy_value_for_benchmarking = False
         global_config.shard_parallel_sync_for_timer = False
         print("Warmup")
-        for i in range(warmup):
+        for _ in range(warmup):
             state = train_step(state, *other_train_step_inputs)
         executable.sync()
         niter -= warmup
         print("Benchmark")
         tic = time.time()
-        for i in range(niter):
+        for _ in range(niter):
             state = train_step(state, *other_train_step_inputs)
         executable.sync()
         e2e_latency = (time.time() - tic) / niter
@@ -268,7 +268,7 @@ def benchmark_inference_executable(niter,
 
     if profile_driver_time:
         # Benchmark latency with streaming
-        for i in range(warmup):
+        for _ in range(warmup):
             _ = infer_step(params, *other_infer_step_inputs)
         executable.sync()
         niter -= warmup
@@ -282,7 +282,7 @@ def benchmark_inference_executable(niter,
             loss = infer_step(params, *other_infer_step_inputs)
             loss.prefetch()
             losses.append(loss)
-        for i, loss in enumerate(losses):
+        for loss in losses:
             _ = loss._value
             end_time = time.time()
             latencies.append(end_time - start_time)
@@ -430,8 +430,7 @@ def compute_avg_stage_latencies(timelines: List[tuple]):
     for request_timeline in timelines:
         sorted_timeline = sorted(request_timeline, key=lambda x: x[0])
         stage_borders = [sorted_timeline[0][0]]
-        for _, e, _, _ in sorted_timeline:
-            stage_borders.append(e)
+        stage_borders.extend(e for _, e, _, _ in sorted_timeline)
         stage_latency = [
             stage_borders[i + 1] - stage_borders[i]
             for i in range(len(stage_borders) - 1)

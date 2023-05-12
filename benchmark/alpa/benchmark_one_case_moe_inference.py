@@ -64,9 +64,9 @@ def prepare_moe_inference_input_and_model(benchmark_case,
             expert_group_size, batch_size * seq_len //
             benchmark_case.num_micro_batches // 1 // rang_factor)
         if expected_expert_group_size != expert_group_size:
-            print("- Expected expert group size should be {}, "
-                  "but got {}. Will reset it".format(expected_expert_group_size,
-                                                     expert_group_size))
+            print(
+                f"- Expected expert group size should be {expected_expert_group_size}, but got {expert_group_size}. Will reset it"
+            )
             expert_group_size = expected_expert_group_size
 
     # Prepare input batch
@@ -194,7 +194,7 @@ def benchmark_moe_inference_internal(benchmark_case,
             f"{tflops:.2f}", f"{per_stage_weight_mem}", f"{per_stage_peak_mem}",
             avg_stage_latencies
         ]
-        write_tsv(heads, values, f"benchmark_results.tsv")
+        write_tsv(heads, values, "benchmark_results.tsv")
 
     metadata = {
         "compilation_times": compilation_times,

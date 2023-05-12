@@ -47,10 +47,7 @@ def locate_cuda():
             if IS_WINDOWS:
                 cuda_homes = glob.glob(
                     "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v*.*")
-                if len(cuda_homes) == 0:
-                    cuda_home = ""
-                else:
-                    cuda_home = cuda_homes[0]
+                cuda_home = "" if not cuda_homes else cuda_homes[0]
             else:
                 cuda_home = "/usr/local/cuda"
             if not os.path.exists(cuda_home):
@@ -65,7 +62,7 @@ def locate_cuda():
             os.path.join(cuda_home,
                          os.path.join("lib", "x64") if IS_WINDOWS else "lib64"),
     }
-    if not all([os.path.exists(v) for v in cudaconfig.values()]):
+    if not all(os.path.exists(v) for v in cudaconfig.values()):
         raise EnvironmentError(
             "The CUDA  path could not be located in $PATH, $CUDA_HOME or $CUDA_PATH. "
             "Either add it to your path, or set $CUDA_HOME or $CUDA_PATH.")
@@ -106,10 +103,10 @@ doc_require_list = [
 
 def get_alpa_version():
     with open(os.path.join(ROOT_DIR, "alpa", "version.py")) as fp:
-        version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]",
-                                  fp.read(), re.M)
-        if version_match:
-            return version_match.group(1)
+        if version_match := re.search(
+            r"^__version__ = ['\"]([^'\"]*)['\"]", fp.read(), re.M
+        ):
+            return version_match[1]
     raise RuntimeError("Unable to find version string.")
 
 

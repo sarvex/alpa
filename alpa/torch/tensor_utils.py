@@ -54,7 +54,7 @@ def to_format(target_format: str, inp: Any):
     """Converts inputs to the format specified by `target_format`.
     Supported formats are "local" and "dist".
     """
-    assert target_format in ["local", "dist"]
+    assert target_format in {"local", "dist"}
     ret = None
     if isinstance(inp, tuple):
         ret = tuple(to_format(target_format, x) for x in inp)
@@ -78,10 +78,10 @@ def to_format(target_format: str, inp: Any):
         elif target_format == "local":
             ret = inp
     elif isinstance(inp, alpa.device_mesh.DistributedArray):
-        if target_format == "local":
-            ret = torch.from_numpy(np.array(inp))
-        elif target_format == "dist":
+        if target_format == "dist":
             ret = inp
+        elif target_format == "local":
+            ret = torch.from_numpy(np.array(inp))
     if ret is not None:
         return ret
     else:
@@ -93,7 +93,7 @@ def assert_format(target_format: str, *inputs):
     """Asserts inputs are in the format specified by `target_format`.
     Supported formats are "local" and "dist".
     """
-    assert target_format in ["local", "dist"]
+    assert target_format in {"local", "dist"}
     for inp in inputs:
         if isinstance(inp, (tuple, list)):
             assert_format(target_format, *inp)

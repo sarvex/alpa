@@ -204,7 +204,7 @@ def benchmark_gpt_inference_internal(model_type,
             f"{tflops:.2f}", f"{per_stage_weight_mem}", f"{per_stage_peak_mem}",
             list(avg_stage_latencies)
         ]
-        write_tsv(heads, values, f"inference_prof_res.tsv")
+        write_tsv(heads, values, "inference_prof_res.tsv")
 
     metadata = {
         "compilation_times": compilation_times,

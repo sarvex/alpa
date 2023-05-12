@@ -72,14 +72,14 @@ class MoEConfig:
         self.pipeline_mp_size = pipeline_mp_size
 
 
-def top2_gating_dummy(gates):  # [GSE] -> [GSEC, GSEC]
+def top2_gating_dummy(gates):    # [GSE] -> [GSEC, GSEC]
     """A temporary dummy implementation."""
     G, S, E = gates.shape
     C = 2 * S // E
     gates = jnp.reshape(gates, (G, S, E, 1))
     combined_weights = jnp.broadcast_to(gates, (G, S, E, C))
     dispatch_mask = combined_weights
-    return combined_weights, dispatch_mask
+    return dispatch_mask, dispatch_mask
 
 
 def top2_gating(gates):  # GSE -> (GSEC, GSEC)

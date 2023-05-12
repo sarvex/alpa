@@ -87,45 +87,43 @@ class VirtualDistributedArray:
     @property
     def replicated_maxes(self):
         """Return the list of mesh axes for replication."""
-        replicated_maxes = []
-        for maxis, assignment in enumerate(self.sharding_spec.mesh_mapping):
-            if isinstance(assignment, Replicated):
-                replicated_maxes.append(maxis)
-        return replicated_maxes
+        return [
+            maxis
+            for maxis, assignment in enumerate(self.sharding_spec.mesh_mapping)
+            if isinstance(assignment, Replicated)
+        ]
 
     @property
     def num_replicas(self):
         """Number of replicas if replicated or partially tiled."""
         if self.tiled:
             return 1
-        else:
-            num_replicas = 1
-            for _, assignment in enumerate(self.sharding_spec.mesh_mapping):
-                if isinstance(assignment, Replicated):
-                    num_replicas = num_replicas * assignment.replicas
-            return num_replicas
+        num_replicas = 1
+        for assignment in self.sharding_spec.mesh_mapping:
+            if isinstance(assignment, Replicated):
+                num_replicas = num_replicas * assignment.replicas
+        return num_replicas
 
     @property
     def tiled(self):
         """Whether this distributed array is fully tiled."""
-        if not self.replicated_maxes:
-            return True
-        return False
+        return not self.replicated_maxes
 
     @property
     def replicated(self):
         """Whether this distributed array is fully replicated."""
-        if len(self.replicated_maxes) == len(self.sharding_spec.mesh_mapping):
-            return True
-        return False
+        return len(self.replicated_maxes) == len(self.sharding_spec.mesh_mapping)
 
     @property
     def partial_tiled(self):
         """Whether this distributed array is mixed sharded and replicated."""
-        if (self.replicated_maxes and len(self.replicated_maxes) < len(
-                self.sharding_spec.mesh_mapping)):
-            return True
-        return False
+        return bool(
+            (
+                self.replicated_maxes
+                and len(self.replicated_maxes)
+                < len(self.sharding_spec.mesh_mapping)
+            )
+        )
 
     @property
     def tile_shape(self):
@@ -187,10 +185,10 @@ class VirtualDistributedArray:
     @property
     def device_str_to_flat_index(self):
         """Maps a device_str to its index in the flattened .indices object."""
-        device_str_to_flat_index_map = {}
-        for i, device_str in enumerate(self.device_mesh.device_strs):
-            device_str_to_flat_index_map[device_str] = i
-        return device_str_to_flat_index_map
+        return {
+            device_str: i
+            for i, device_str in enumerate(self.device_mesh.device_strs)
+        }
 
 
 @dataclass

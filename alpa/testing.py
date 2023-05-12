@@ -201,11 +201,9 @@ def get_bert_layer_train_state_and_step(batch_size, seq_len, num_layers,
 def create_train_state(rngkey, model, inputs):
     params = model.init(rngkey, *inputs)
     tx = optax.adam(learning_rate=1e-2)
-    state = TrainState.create(apply_fn=model.apply,
-                              params=params,
-                              tx=tx,
-                              dynamic_scale=None)
-    return state
+    return TrainState.create(
+        apply_fn=model.apply, params=params, tx=tx, dynamic_scale=None
+    )
 
 
 def mlp_inference_step(state, batch):
@@ -283,8 +281,7 @@ class PipelineBasicTest(unittest.TestCase):
                                 actual_new_state.params, 1e-3, 1e-3)
                 assert_allclose(expected_val, actual_val, 1e-3, 1e-3)
 
-        hlo_text = executable.get_hlo_text()
-        return hlo_text
+        return executable.get_hlo_text()
 
     def run_n_layer_bert(self,
                          num_layers,
@@ -347,8 +344,7 @@ class PipelineBasicTest(unittest.TestCase):
                                 actual_new_state.params, 1e-3, 1.5e-3)
                 assert_allclose(expected_val, actual_val, 1e-3, 1e-3)
 
-        hlo_text = executable.get_hlo_text()
-        return hlo_text
+        return executable.get_hlo_text()
 
 
 def data_loader_input_iter_func(start, end, batch_size):
@@ -372,8 +368,7 @@ class HloParser:
     @staticmethod
     def get_param_line(text: str):
         text = text[text.find("ENTRY"):]
-        text = text[:text.find("\n")]
-        return text
+        return text[:text.find("\n")]
 
     @staticmethod
     def get_root_line(text: str):
@@ -386,8 +381,7 @@ class HloParser:
     def parse_param_shapes(text: str):
         # the first one is "ENTRY %xxx ("
         params = text.split("param")[1:]
-        shapes = tuple(map(lambda x: x[x.find("f32"):x.find("]") + 1], params))
-        return shapes
+        return tuple(map(lambda x: x[x.find("f32"):x.find("]") + 1], params))
 
     @staticmethod
     def parse_root_shapes(text: str):

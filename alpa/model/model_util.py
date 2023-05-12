@@ -24,26 +24,11 @@ def is_tensor(x):
     Tests if ``x`` is a :obj:`torch.Tensor`, :obj:`tf.Tensor`, obj:`jaxlib.xla_extension.DeviceArray` or
     :obj:`np.ndarray`.
     """
-    #if is_torch_fx_proxy(x):
-    #    return True
-    #if is_torch_available():
-    #    import torch
+    import jaxlib.xla_extension as jax_xla
+    from jax.core import Tracer
 
-    #    if isinstance(x, torch.Tensor):
-    #        return True
-    #if is_tf_available():
-    #    import tensorflow as tf
-
-    #    if isinstance(x, tf.Tensor):
-    #        return True
-
-    #if is_flax_available():
-    if True:
-        import jaxlib.xla_extension as jax_xla
-        from jax.core import Tracer
-
-        if isinstance(x, (jax_xla.DeviceArray, Tracer)):
-            return True
+    if isinstance(x, (jax_xla.DeviceArray, Tracer)):
+        return True
 
     return isinstance(x, np.ndarray)
 
@@ -82,9 +67,11 @@ class ModelOutput(OrderedDict):
             # set the associated fields
             if first_field_iterator:
                 for element in iterator:
-                    if (not isinstance(element, (list, tuple)) or
-                            not len(element) == 2 or
-                            not isinstance(element[0], str)):
+                    if (
+                        not isinstance(element, (list, tuple))
+                        or len(element) != 2
+                        or not isinstance(element[0], str)
+                    ):
                         break
                     setattr(self, element[0], element[1])
                     if element[1] is not None:
@@ -117,11 +104,10 @@ class ModelOutput(OrderedDict):
         )
 
     def __getitem__(self, k):
-        if isinstance(k, str):
-            inner_dict = {k: v for (k, v) in self.items()}
-            return inner_dict[k]
-        else:
+        if not isinstance(k, str):
             return self.to_tuple()[k]
+        inner_dict = dict(self.items())
+        return inner_dict[k]
 
     def __setattr__(self, name, value):
         if name in self.keys() and value is not None:
@@ -291,11 +277,7 @@ class TrainState(train_state.TrainState):
           and `opt_state` updated by applying `grads`, and additional attributes
           replaced as specified by `kwargs`.
         """
-        if self.master_copy is None:
-            master_params = self.params
-        else:
-            master_params = self.master_copy
-
+        master_params = self.params if self.master_copy is None else self.master_copy
         updates, new_opt_state = self.tx.update(grads, self.opt_state,
                                                 master_params)
         new_master_params = optax.apply_updates(master_params, updates)
@@ -458,10 +440,7 @@ class DynamicScale(struct.PyTreeNode):
         @functools.wraps(fun)
         def loss_wrapper(*args):
             aux = fun(*args)
-            if has_aux:
-                return (self.scale * aux[0], aux[1])
-            else:
-                return self.scale * aux
+            return (self.scale * aux[0], aux[1]) if has_aux else self.scale * aux
 
         grad_fn = value_and_grad(loss_wrapper, argnums, has_aux)
 

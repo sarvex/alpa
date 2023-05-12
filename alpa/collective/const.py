@@ -18,8 +18,7 @@ def get_store_name(group_name):
     """
     if not group_name:
         raise ValueError("group_name is None.")
-    hexlified_name = hashlib.md5(group_name.encode()).hexdigest()
-    return hexlified_name
+    return hashlib.md5(group_name.encode()).hexdigest()
 
 
 class ENV(Enum):

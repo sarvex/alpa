@@ -213,8 +213,7 @@ class PipeshardParallel(ParallelMethod):
             stage_option = UniformStageOption()
         self.stage_option = stage_option or UniformStageOption()
         self.stage_input_shardings = stage_input_shardings
-        assert not (stage_input_shardings is not None and
-                    manual_sharding_option is not None)
+        assert stage_input_shardings is None or manual_sharding_option is None
         self.manual_sharding_option = manual_sharding_option
 
     def compile_executable(

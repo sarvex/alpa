@@ -433,8 +433,11 @@ def get_submesh_choices(
 
     # larger meshes:
     if space == "all":
-        for i in range(2, num_hosts + 1):
-            submesh_choices.append((i, num_devices_per_host))
+        submesh_choices.extend(
+            (i, num_devices_per_host) for i in range(2, num_hosts + 1)
+        )
+    elif space == "manual":
+        submesh_choices = manually_specified_submeshes
     elif space == "power_of_two":
         i = 2
         while i <= num_hosts:
@@ -445,8 +448,6 @@ def get_submesh_choices(
         while i <= min(num_hosts, 4):
             submesh_choices.append((i, num_devices_per_host))
             i *= 2
-    elif space == "manual":
-        submesh_choices = manually_specified_submeshes
     else:
         raise ValueError(f"Invalid submesh space: {space}")
 
@@ -468,12 +469,12 @@ def get_one_submesh_autosharding_config_choices(
     """
     results = []
     num_devices = virtual_submesh.num_devices
-    if space in ["all", "single_node_model_parallel"]:
-        if space == "all":
-            max_mp_dimension = num_devices
-        else:  # space == "single_node_model_parallel"
-            max_mp_dimension = virtual_submesh.num_devices_per_host
-
+    if space in {"all", "single_node_model_parallel"}:
+        max_mp_dimension = (
+            num_devices
+            if space == "all"
+            else virtual_submesh.num_devices_per_host
+        )
         for mp_size in range(1, max_mp_dimension + 1):
             if num_devices % mp_size == 0:
                 dp_size = num_devices // mp_size
@@ -483,8 +484,6 @@ def get_one_submesh_autosharding_config_choices(
                             "force_batch_dim_to_mesh_dim": 0
                         }))
         results.append((virtual_submesh.get_logical_mesh((num_devices, 1)), {}))
-    elif space == "same_as_physical":
-        results.append((virtual_submesh.get_logical_mesh(), {}))
     elif space == "data_parallel_only":
         results.append((virtual_submesh.get_logical_mesh((num_devices, 1)), {
             "force_batch_dim_to_mesh_dim": 0
@@ -493,6 +492,8 @@ def get_one_submesh_autosharding_config_choices(
         results.append((virtual_submesh.get_logical_mesh((1, num_devices)), {
             "force_batch_dim_to_mesh_dim": 0
         }))
+    elif space == "same_as_physical":
+        results.append((virtual_submesh.get_logical_mesh(), {}))
     else:
         raise ValueError(f"Invalid space for get_one_submesh_autosharding"
                          f"_config_choices: {space}")
@@ -601,11 +602,7 @@ def cluster_layers_and_slice_mesh(
     timers("stage-construction").start()
 
     inference_mode = (pipeline_schedule == "inference")
-    if virtual_mesh.launched_physical_mesh_group is None:
-        given_mesh = False
-    else:
-        given_mesh = True
-
+    given_mesh = virtual_mesh.launched_physical_mesh_group is not None
     if inference_mode:
         num_layers = len(layers)
     else:
@@ -848,5 +845,4 @@ def _cluster_layers_with_even_tflops(layers, num_stage):
             nxt_bound += avg_flop
             forward_layer_ids.append(
                 tuple(range(forward_layer_ids[-1][-1] + 1, i + 1)))
-    forward_layer_ids = forward_layer_ids[1:]
-    return forward_layer_ids
+    return forward_layer_ids[1:]

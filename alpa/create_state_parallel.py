@@ -169,9 +169,7 @@ def propagate_mesh_assignment(jaxpr, var2mesh, eqn2mesh):
     for var, mesh_idx in var2mesh.items():
         mesh2vars[mesh_idx].append(var)
 
-    mesh_indices = list(mesh2vars.keys())
-    mesh_indices.sort()
-
+    mesh_indices = sorted(mesh2vars.keys())
     for mesh_idx in mesh_indices:
         for var in mesh2vars[mesh_idx]:
             eqn_idx = def_eqn[var]

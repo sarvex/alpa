@@ -70,8 +70,7 @@ def _parsed_pspec_to_hlo_sharding(
         for manual_axis in axis_ctx.manual_axes:
             special_axes[axis_names.index(
                 manual_axis)] = xc.OpSharding.Type.MANUAL
-    op_sharding = sharding_spec.sharding_proto(special_axes=special_axes)
-    return op_sharding
+    return sharding_spec.sharding_proto(special_axes=special_axes)
 
 
 def _flatten_axes(treedef, axis_tree):
@@ -133,11 +132,12 @@ def parsed_spec_to_opsharding(axes, avals, mesh_shape, mesh_axis_names):
 
     named_mesh_shape = OrderedDict(
         (name, size) for name, size in safe_zip(mesh_axis_names, mesh_shape))
-    op_shardings = tuple(
-        _parsed_pspec_to_hlo_sharding(named_mesh_shape, mesh_axis_names, axis,
-                                      len(aval.shape))
-        for axis, aval in safe_zip(axes, avals))
-    return op_shardings
+    return tuple(
+        _parsed_pspec_to_hlo_sharding(
+            named_mesh_shape, mesh_axis_names, axis, len(aval.shape)
+        )
+        for axis, aval in safe_zip(axes, avals)
+    )
 
 
 def get_manual_sharding_spec(

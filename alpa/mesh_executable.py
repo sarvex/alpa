@@ -233,7 +233,7 @@ class NormalMeshDriverExecutable(MeshDriverExecutable):
 
         # Set up timers
         self.exec_timer_name = get_execution_timer_name(self.exec_uuid)
-        self.shard_args_timer_name = self.exec_timer_name + "-shard-args"
+        self.shard_args_timer_name = f"{self.exec_timer_name}-shard-args"
         self.sync_func = get_sync_func_driver(physical_mesh)
 
     def _set_executable(self, physical_mesh, hlo, stage_plan):
@@ -360,11 +360,12 @@ class NormalMeshDriverExecutable(MeshDriverExecutable):
     def profile_with_dummy_inputs(self, **kwargs):
         """Profile the execution time costs with dummy inputs."""
         if isinstance(self.physical_mesh, DistributedPhysicalDeviceMesh):
-            tasks = []
-            for worker in self.physical_mesh.workers:
-                tasks.append(
-                    worker.profile_executable_with_dummy_inputs.remote(
-                        self.exec_uuid, **kwargs))
+            tasks = [
+                worker.profile_executable_with_dummy_inputs.remote(
+                    self.exec_uuid, **kwargs
+                )
+                for worker in self.physical_mesh.workers
+            ]
             costs = ray.get(tasks)
             for cost_vec in costs:
                 if np.inf in cost_vec:
@@ -383,22 +384,20 @@ class NormalMeshDriverExecutable(MeshDriverExecutable):
             return (ray.get(self.physical_mesh.workers[0].
                             get_exec_total_allocation_size.remote(
                                 self.exec_uuid)))
-        else:
-            assert isinstance(self.physical_mesh, LocalPhysicalDeviceMesh)
-            return self.compiled.total_allocation_size()
+        assert isinstance(self.physical_mesh, LocalPhysicalDeviceMesh)
+        return self.compiled.total_allocation_size()
 
     def get_hlo_text(self, status: HloStatus = HloStatus.FULLY_OPTIMIZED):
         """Return the HLO IR in the text format."""
-        if status == HloStatus.FULLY_OPTIMIZED:
-            if self.fully_optimized_hlo_text is not None:
-                return self.fully_optimized_hlo_text
-            assert isinstance(self.physical_mesh, DistributedPhysicalDeviceMesh)
-            self.fully_optimized_hlo_text = ray.get(
-                self.physical_mesh.workers[0].get_exec_hlo_text.remote(
-                    self.exec_uuid))
-            return self.fully_optimized_hlo_text
-        else:
+        if status != HloStatus.FULLY_OPTIMIZED:
             raise ValueError(f"Invalid status: {status}")
+        if self.fully_optimized_hlo_text is not None:
+            return self.fully_optimized_hlo_text
+        assert isinstance(self.physical_mesh, DistributedPhysicalDeviceMesh)
+        self.fully_optimized_hlo_text = ray.get(
+            self.physical_mesh.workers[0].get_exec_hlo_text.remote(
+                self.exec_uuid))
+        return self.fully_optimized_hlo_text
 
     def dump_debug_info(self, folder: str):
         """
@@ -524,8 +523,8 @@ class GradAccMeshDriverExecutable(MeshDriverExecutable):
         self.donated_invars = donated_invars
         self.batch_invars = batch_invars
         self.accumulate_grad_invar_indices = accumulate_grad_invar_indices
-        self.apply_grad_invar_indices = apply_grad_invar_indices
         self.num_micro_batches = num_micro_batches
+        self.apply_grad_invar_indices = apply_grad_invar_indices
         self.in_tree = in_tree
         self.out_tree = out_tree
         self.flop_count = flop_count
@@ -539,7 +538,7 @@ class GradAccMeshDriverExecutable(MeshDriverExecutable):
             avals[i] for i in accumulate_grad_invar_indices
         ] + grad_avals
         apply_grad_in_avals = \
-            [avals[i] for i in apply_grad_invar_indices] + grad_avals
+                [avals[i] for i in apply_grad_invar_indices] + grad_avals
         accumulate_grad_input_sharding_specs, grad_sharding_specs = (
             get_input_output_sharding_specs(accumulate_grad.get_module(),
                                             accumulate_grad_in_avals,
@@ -643,13 +642,11 @@ class GradAccMeshDriverExecutable(MeshDriverExecutable):
                 self.apply_grad.hlo_modules()[0].to_string())
             self.grad_sync_channel_ids = get_grad_sync_channel_ids(
                 self.accumulate_grad.hlo_modules()[0])
-            self.skip_allreduce_env_name = (
-                self.accumulate_grad.hlo_modules()[0].name +
-                "XLA_SKIP_NCCL_COLLECTIVE_IDS")
+            self.skip_allreduce_env_name = f"{self.accumulate_grad.hlo_modules()[0].name}XLA_SKIP_NCCL_COLLECTIVE_IDS"
 
         # Set up timers
         self.exec_timer_name = get_execution_timer_name(self.exec_uuid)
-        self.shard_args_timer_name = self.exec_timer_name + "-shard-args"
+        self.shard_args_timer_name = f"{self.exec_timer_name}-shard-args"
         self.sync_func = get_sync_func_driver(physical_mesh)
 
     def launch_on_driver(self, *args):
@@ -779,26 +776,24 @@ class GradAccMeshDriverExecutable(MeshDriverExecutable):
             return ray.get(self.physical_mesh.workers[0].
                            get_exec_total_allocation_size.remote(
                                self.exec_uuid))
-        else:
-            assert isinstance(self.physical_mesh, LocalPhysicalDeviceMesh)
-            return max(self.accumulate_grad.total_allocation_size(),
-                       self.apply_grad.total_allocation_size())
+        assert isinstance(self.physical_mesh, LocalPhysicalDeviceMesh)
+        return max(self.accumulate_grad.total_allocation_size(),
+                   self.apply_grad.total_allocation_size())
 
     def get_hlo_text(self, status: HloStatus = HloStatus.FULLY_OPTIMIZED):
         """Return the HLO IR in the text format."""
-        if status == HloStatus.FULLY_OPTIMIZED:
-            if self.fully_optimized_hlo_text is not None:
-                return self.fully_optimized_hlo_text
-            assert isinstance(self.physical_mesh, DistributedPhysicalDeviceMesh)
-            self.fully_optimized_hlo_text = ray.get(
-                self.physical_mesh.workers[0].get_exec_hlo_text.remote(
-                    self.exec_uuid))
-            self.grad_sync_channel_ids = ray.get(
-                self.physical_mesh.workers[0].get_exec_grad_sync_channel_ids.
-                remote(self.exec_uuid))
-            return self.fully_optimized_hlo_text
-        else:
+        if status != HloStatus.FULLY_OPTIMIZED:
             raise ValueError(f"Invalid status: {status}")
+        if self.fully_optimized_hlo_text is not None:
+            return self.fully_optimized_hlo_text
+        assert isinstance(self.physical_mesh, DistributedPhysicalDeviceMesh)
+        self.fully_optimized_hlo_text = ray.get(
+            self.physical_mesh.workers[0].get_exec_hlo_text.remote(
+                self.exec_uuid))
+        self.grad_sync_channel_ids = ray.get(
+            self.physical_mesh.workers[0].get_exec_grad_sync_channel_ids.
+            remote(self.exec_uuid))
+        return self.fully_optimized_hlo_text
 
     def dump_debug_info(self, folder: str):
         """
@@ -881,7 +876,7 @@ class GradAccMeshWorkerExecutable(MeshWorkerExecutable):
             [])
 
         # Call accumulate_grad multiple times
-        tmp_input_bufs = tmp_input_bufs + grad_bufs
+        tmp_input_bufs += grad_bufs
         os.environ[self.skip_allreduce_env_name] = self.grad_sync_channel_ids
         for i in range(num_micro_batches):
             if i != 0:
@@ -914,7 +909,7 @@ class GradAccMeshWorkerExecutable(MeshWorkerExecutable):
 
         # Delete micro batch buffers
         if next_batches_uuids is not None and \
-                next_batches_uuids[0] is not None:
+                    next_batches_uuids[0] is not None:
             for i in range(len(next_batches_uuids)):
                 del buffer_dict[next_batches_uuids[i]]
 
@@ -1049,16 +1044,15 @@ class AllocZeroBufferDriverExecutable(MeshDriverExecutable):
 
     def launch_on_driver(self, *args):
         """Launch the executable on the driver."""
-        assert len(args) == 0, (
-            f"allocate zero buffers does not need args, got {len(args)}")
+        assert not args, f"allocate zero buffers does not need args, got {len(args)}"
         physical_mesh = self.physical_mesh
-        num_hosts = physical_mesh.num_hosts
-        num_outs = len(self.out_avals)
-
         if isinstance(physical_mesh, DistributedPhysicalDeviceMesh):
+            num_outs = len(self.out_avals)
+
             # Get output uuids
             output_uuids = next_array_uuids(num_outs)
 
+            num_hosts = physical_mesh.num_hosts
             # Execute SPMD binary
             for i in range(num_hosts):
                 physical_mesh.workers[i].run_executable.remote(

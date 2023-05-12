@@ -84,11 +84,7 @@ class FlaxBertEmbeddings(nn.Module):
 
     def setup(self):
 
-        if self.config.gradient_checkpointing:
-            trans_func = remat
-        else:
-            trans_func = lambda x: x
-
+        trans_func = remat if self.config.gradient_checkpointing else (lambda x: x)
         self.word_embeddings = trans_func(nn.Embed)(
             self.config.vocab_size,
             self.config.hidden_size,
@@ -213,9 +209,7 @@ class FlaxBertSelfAttention(nn.Module):
                                  value_states)
         attn_output = attn_output.reshape(attn_output.shape[:2] + (-1,))
 
-        outputs = (attn_output,
-                   attn_weights) if output_attentions else (attn_output,)
-        return outputs
+        return (attn_output, attn_weights) if output_attentions else (attn_output,)
 
 
 class FlaxBertSelfOutput(nn.Module):

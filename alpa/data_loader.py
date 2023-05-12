@@ -148,11 +148,12 @@ class MeshDriverDataLoader:
                                                        len(avals))
         self.output_uuids = ary_uuids
         self.output_arrays = []
-        for i in range(len(avals)):
-            self.output_arrays.append(
-                DistributedArray(physical_mesh, avals[i], sharding_specs[i],
-                                 ary_refs[i]))
-
+        self.output_arrays.extend(
+            DistributedArray(
+                physical_mesh, avals[i], sharding_specs[i], ary_refs[i]
+            )
+            for i in range(len(avals))
+        )
         # Create worker part data loaders
         self.worker_data_loaders = []
         self.num_batches = num_samples // batch_size

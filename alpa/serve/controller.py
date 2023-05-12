@@ -86,8 +86,7 @@ class DeviceMeshGroupManager:
         request_wrapper = pickle.loads(request_wrapper)
         request = build_starlette_request(request_wrapper)
         try:
-            response = await self.replicas[name].handle_request(request)
-            return response
+            return await self.replicas[name].handle_request(request)
         except Exception as e:  # pylint: disable=broad-except
             return RelayException(e)
 
@@ -137,12 +136,11 @@ class Controller:
                              override: bool = False):
         async with self.manager_lock[name]:
             if name in self.model_info:
-                if override:
-                    for manager in self.model_info[name].managers:
-                        await manager.delete_replica.remote(name)
-                else:
+                if not override:
                     raise ValueError(f"Model {name} is already registered")
 
+                for manager in self.model_info[name].managers:
+                    await manager.delete_replica.remote(name)
             self.model_info[name] = ModelInfo(
                 CreateInfo(model_def, init_args, init_kwargs), [], 0)
 

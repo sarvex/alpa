@@ -666,7 +666,7 @@ def generate_training_stages_2d(layers,
     stages = []
     for start in tqdm.tqdm(range(0, num_layers)):
         for end in tqdm.tqdm(range(start, num_layers), leave=False):
-            if is_full_mesh and not (start == 0 and end == num_layers - 1):
+            if is_full_mesh and (start != 0 or end != num_layers - 1):
                 continue
             flops_ratio = (
                 layer_flops_prefix_sum[end + 1] - layer_flops_prefix_sum[start]
@@ -720,7 +720,7 @@ def generate_inference_stages_2d(layers,
     stages = []
     for start in tqdm.tqdm(range(0, num_layers)):
         for end in tqdm.tqdm(range(start, num_layers), leave=False):
-            if is_full_mesh and not (start == 0 and end == num_layers - 1):
+            if is_full_mesh and (start != 0 or end != num_layers - 1):
                 continue
             flops_ratio = (layer_flops_prefix_sum[end + 1] -
                            layer_flops_prefix_sum[start]) / tot_flops
@@ -735,8 +735,9 @@ def generate_inference_stages_2d(layers,
                 for idx in forward_layer_indices
                 if apply_grad_layers[idx] is not None
             ]
-            assert len(selected_apply_grad_layers) == 0, (
-                "Inference stage should not have apply_grad_layers")
+            assert (
+                not selected_apply_grad_layers
+            ), "Inference stage should not have apply_grad_layers"
             stage_name = f"stage_{start}_{end}"
             stage_config = generate_stage_info(layers, [forward_layer_indices],
                                                accumulator_mapping,
@@ -844,20 +845,14 @@ def get_merged_stages_memory_stats(
     stage_no = -1
     for module_id, stage_order in enumerate(module_execution_orders):
         module_invars = all_module_invars[module_id]
-        env.update(module_invars)
+        env |= module_invars
         for stage_id in stage_order:
             stage_no += 1
             module_result = profile_results[stage_id].module_profile_results[
                 module_id]
             for invar, size in zip(module_result.invar_names,
                                    module_result.invar_sizes):
-                if invar not in env:
-                    env[invar] = size
-                else:
-                    # env[invar] and size might be different because of
-                    # different sharding specs. We take the max for
-                    # estimation.
-                    env[invar] = max(env[invar], size)
+                env[invar] = size if invar not in env else max(env[invar], size)
             for outvar, size in zip(module_result.outvar_names,
                                     module_result.outvar_sizes):
                 assert outvar not in env
@@ -868,24 +863,33 @@ def get_merged_stages_memory_stats(
             total_env_size = sum(env.values())
             peak_memory = max(peak_memory,
                               total_env_size + module_result.temp_buffer_size)
-            # Remove the variables that are no longer used and is generated
-            # within the module.
-            var_to_be_eliminated = []
-            for var in env:
-                if (var not in module_invars and var not in acc_grad_invars and
-                        var not in acc_grad_outvars and
-                    (var not in last_used_stage_no or
-                     last_used_stage_no[var] <= stage_no)):
-                    var_to_be_eliminated.append(var)
+            var_to_be_eliminated = [
+                var
+                for var in env
+                if (
+                    var not in module_invars
+                    and var not in acc_grad_invars
+                    and var not in acc_grad_outvars
+                    and (
+                        var not in last_used_stage_no
+                        or last_used_stage_no[var] <= stage_no
+                    )
+                )
+            ]
             for var in var_to_be_eliminated:
                 del env[var]
-        # Remove the variables that are no longer used
-        var_to_be_eliminated = []
-        for var in env:
-            if (var not in acc_grad_invars and var not in acc_grad_outvars and
-                (var not in last_used_stage_no or
-                 last_used_stage_no[var] <= stage_no)):
-                var_to_be_eliminated.append(var)
+        var_to_be_eliminated = [
+            var
+            for var in env
+            if (
+                var not in acc_grad_invars
+                and var not in acc_grad_outvars
+                and (
+                    var not in last_used_stage_no
+                    or last_used_stage_no[var] <= stage_no
+                )
+            )
+        ]
         for var in var_to_be_eliminated:
             del env[var]
 
@@ -901,7 +905,7 @@ def get_merged_stages_memory_stats(
     for var in acc_grad_outvars:
         del env[var]
 
-    assert len(env) == 0, f"Variables {env.keys()} are not eliminated."
+    assert not env, f"Variables {env.keys()} are not eliminated."
 
     if inference_mode:
         max_stage = None
@@ -1004,8 +1008,9 @@ def generate_inference_stages_1d(layers, accumulator_mapping, acc_grad_invars,
     for l in tqdm.tqdm(range(0, num_layers)):
         selected_apply_grad_layers = ([] if apply_grad_layers[l] is None else
                                       [apply_grad_layers[l]])
-        assert len(selected_apply_grad_layers) == 0, (
-            "Inference stage should not have apply_grad_layers")
+        assert (
+            not selected_apply_grad_layers
+        ), "Inference stage should not have apply_grad_layers"
         stage_name = f"stage_{l}"
         stage_config = generate_stage_info(layers, [(l,)], accumulator_mapping,
                                            acc_grad_invars, acc_grad_outvars,
@@ -1374,7 +1379,7 @@ def select_module_layers(layers: Sequence[JaxPipelineComputation],
         required_outvars = [
             var for var in new_layer.outvars if var in used_by_other_layers_set
         ]
-        module_accumulator_mapping.update(layer_donation)
+        module_accumulator_mapping |= layer_donation
         module_required_outvars.update(required_outvars)
         local_used.update(new_layer.invars)
         new_layers.append(new_layer)

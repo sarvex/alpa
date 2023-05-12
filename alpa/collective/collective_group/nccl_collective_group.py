@@ -544,7 +544,7 @@ class NCCLGroup(BaseGroup):
         The group key is a concatenation of the communicator key and
         the group name, following: [comm_key]@[group_name].
         """
-        return comm_key + "@" + self.group_name
+        return f"{comm_key}@{self.group_name}"
 
     @staticmethod
     def _destroy_store(group_key):
@@ -566,8 +566,7 @@ class NCCLGroup(BaseGroup):
 
     @staticmethod
     def generate_nccl_uid():
-        group_uid = nccl_util.get_nccl_unique_id()
-        return group_uid
+        return nccl_util.get_nccl_unique_id()
 
     def _generate_nccl_uid(self, key):
         """Generate an NCCL unique ID for initializing communicators.
@@ -708,11 +707,10 @@ class NCCLGroup(BaseGroup):
 
     def _rendezvous_nccl_uid(self, rank, comm_key, max_counter, nccl_uid=None):
         group_key = self._generate_group_key(comm_key)
-        if rank == 0:
-            if nccl_uid is None:
+        if nccl_uid is None:
+            if rank == 0:
                 nccl_uid = self._generate_nccl_uid(group_key)
-        else:
-            if nccl_uid is None:
+            else:
                 rendezvous = Rendezvous(group_key)
                 rendezvous.meet()
                 nccl_uid = rendezvous.get_nccl_id()
@@ -857,15 +855,14 @@ def _get_comm_key_send_recv(my_rank, my_gpu_idx, peer_rank, peer_gpu_idx):
         comm_key (str): a string key to query the communication cache.
     """
     if my_rank < peer_rank:
-        lower_key = str(my_rank) + "_" + str(my_gpu_idx)
-        higher_key = str(peer_rank) + "_" + str(peer_gpu_idx)
+        lower_key = f"{str(my_rank)}_{str(my_gpu_idx)}"
+        higher_key = f"{str(peer_rank)}_{str(peer_gpu_idx)}"
     elif my_rank > peer_rank:
-        lower_key = str(peer_rank) + "_" + str(peer_gpu_idx)
-        higher_key = str(my_rank) + "_" + str(my_gpu_idx)
+        lower_key = f"{str(peer_rank)}_{str(peer_gpu_idx)}"
+        higher_key = f"{str(my_rank)}_{str(my_gpu_idx)}"
     else:
         raise RuntimeError(
             "Send and recv happens on the same process. alpa.collective "
             "does not support this case as of now. Alternatively, consider "
             "doing GPU to GPU memcpy?")
-    comm_key = lower_key + ":" + higher_key
-    return comm_key
+    return f"{lower_key}:{higher_key}"

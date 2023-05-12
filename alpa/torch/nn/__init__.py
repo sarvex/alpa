@@ -41,11 +41,10 @@ def fx_ir_to_alpa_func_code(fx_ir, alpa_func_name):
     sig_args.insert(1, "bufs")
     signature_line = f"def {alpa_func_name}(" + ", ".join(sig_args) + "):"
 
-    out_body_lines = []
-
     bufs_set = set(fx_ir.buffers(recurse=True))
     bufs_n_to_key = {}
 
+    out_body_lines = []
     for line in lines[1:]:
         line = line.replace(" : torch.Tensor", "")
         if "self." in line:
@@ -91,23 +90,23 @@ def fx_ir_to_alpa_func_code(fx_ir, alpa_func_name):
                 # Full list of NN modules that need this handling is at
                 # torchdynamo/torchdynamo/optimizations/normalize.py
                 # `DONT_EXPAND_MODULES`.
-                assert attr_value.__class__.__name__ in DONT_EXPAND_MODULES, \
-                    "unknown module: " + str(attr_value.__class__.__name__)
+                assert (
+                    attr_value.__class__.__name__ in DONT_EXPAND_MODULES
+                ), f"unknown module: {str(attr_value.__class__.__name__)}"
                 call_args = line.split("self.")[1].split("(")[1].split(
                     ")")[0].split(", ")
-                if attr_value.__class__.__name__ == "Conv2d":
-                    call_args += [
-                        f"params['{attr_fqn_name_in_param_dict}.weight']",
-                        f"bias=params['{attr_fqn_name_in_param_dict}.bias']",
-                        f"stride={attr_value.stride}",
-                        f"padding={attr_value.padding}",
-                        f"dilation={attr_value.dilation}",
-                        f"groups={attr_value.groups}",
-                    ]
-                    lhs = line.split(" = ")[0]
-                    line = lhs + " = " + f"torch.conv2d({', '.join(call_args)})"
-                else:
+                if attr_value.__class__.__name__ != "Conv2d":
                     raise NotImplementedError
+                call_args += [
+                    f"params['{attr_fqn_name_in_param_dict}.weight']",
+                    f"bias=params['{attr_fqn_name_in_param_dict}.bias']",
+                    f"stride={attr_value.stride}",
+                    f"padding={attr_value.padding}",
+                    f"dilation={attr_value.dilation}",
+                    f"groups={attr_value.groups}",
+                ]
+                lhs = line.split(" = ")[0]
+                line = f"{lhs} = " + f"torch.conv2d({', '.join(call_args)})"
             elif isinstance(attr_value, torch.nn.Parameter):  # Parameter
                 line = line.replace(f"{attr_fqn_name_in_original_ir}",
                                     f"params['{attr_fqn_name_in_param_dict}']")
@@ -149,9 +148,11 @@ def fx_ir_to_alpa_func_code(fx_ir, alpa_func_name):
             assert "running_mean" in r_mean_arg_n
             r_var_arg_n = call_args[2]
             assert "running_var" in r_var_arg_n
-            line = (lhs + ", r_mean_new, r_var_new" +
-                    " = torch.nn.functional.batch_norm(" +
-                    ", ".join(call_args) + ")")
+            line = (
+                f"{lhs}, r_mean_new, r_var_new = torch.nn.functional.batch_norm("
+                + ", ".join(call_args)
+                + ")"
+            )
             line += "\n"
             line += f"    bufs['{bufs_n_to_key[r_mean_arg_n]}'] = r_mean_new"
             line += "\n"
@@ -181,21 +182,17 @@ def fx_ir_to_alpa_func_code(fx_ir, alpa_func_name):
             line = line.replace(f"{tensor_name}.size()", f"{tensor_name}.shape")
         if ".permute(" in line:
             tensor_name = line.split(" = ")[1].split(".permute(")[0]
-            line = line.replace(f"{tensor_name}.permute(",
-                                f"torch.permute({tensor_name}, (") + ")"
+            line = f'{line.replace(f"{tensor_name}.permute(", f"torch.permute({tensor_name}, (")})'
         if ".expand(" in line:
             tensor_name = line.split(" = ")[1].split(".expand(")[0]
-            line = line.replace(f"{tensor_name}.expand(",
-                                f"torch.expand({tensor_name}, (") + ")"
+            line = f'{line.replace(f"{tensor_name}.expand(", f"torch.expand({tensor_name}, (")})'
         if ".view(" in line:
             tensor_name = line.split(" = ")[1].split(".view(")[0]
-            line = line.replace(f"{tensor_name}.view(",
-                                f"torch.view({tensor_name}, (") + ")"
+            line = f'{line.replace(f"{tensor_name}.view(", f"torch.view({tensor_name}, (")})'
         if " @ " in line:
             lhs = line.split(" = ")[0]
             rhs = line.split(" = ")[1]
-            line = lhs + " = " + "torch.matmul(" + rhs.replace(" @ ",
-                                                               ", ") + ")"
+            line = f"{lhs} = torch.matmul(" + rhs.replace(" @ ", ", ") + ")"
 
         if "return " in line:
             rhs_of_return = line.split("return ")[1]
@@ -292,7 +289,7 @@ class FunctionalModuleWithBuffersInInputAndOutput(torch.nn.Module):
         self.buffer_names = buffer_names
 
         self.all_names_map = dict(param_names_map)
-        self.all_names_map.update(buffer_names_map)
+        self.all_names_map |= buffer_names_map
 
     @staticmethod
     def create_from(model, disable_autograd_tracking=False):

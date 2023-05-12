@@ -175,7 +175,6 @@ def broadcast(worker, uuid, comm_key, world_size, devices_ids,
                 to_use.append(tmp[ind])
             else:
                 to_use.append(tmp)
-            for_buffer.append(tmp)
         else:
             tmp = None
             if global_rank == 0:
@@ -188,8 +187,7 @@ def broadcast(worker, uuid, comm_key, world_size, devices_ids,
                                  worker.local_devices[device_id])
                 tmp = jax_tensor_to_cupy(tmp, take_ownership=True)
             to_use.append(tmp)
-            for_buffer.append(tmp)
-
+        for_buffer.append(tmp)
     _, n_elements = infer_offset_and_n_elements(tensor_slices[0])
     col.broadcast_partialgpu(to_use, n_elements, comm_key, world_size,
                              devices_ids, devices_global_rank, group_name)
@@ -237,9 +235,9 @@ def cupy_to_xla_buffer(tensor):
         gpu_backend = xb.get_backend("gpu")
     except RuntimeError:
         gpu_backend = None
-    buf = xc._xla.dlpack_managed_tensor_to_buffer(  # pylint: disable=protected-access
-        tensor.toDlpack(), cpu_backend, gpu_backend)
-    return buf
+    return xc._xla.dlpack_managed_tensor_to_buffer(  # pylint: disable=protected-access
+        tensor.toDlpack(), cpu_backend, gpu_backend
+    )
 
 
 def jax_tensor_to_cupy(tensors, take_ownership=False):

@@ -29,7 +29,7 @@ def update_ds_config(filename, gradient_accumulation_steps):
     for i in range(len(lines)):
         if "gradient_accumulation_steps" in lines[i]:
             idx = lines[i].index(":")
-            lines[i] = lines[i][:idx] + f": {gradient_accumulation_steps},\n"
+            lines[i] = f"{lines[i][:idx]}: {gradient_accumulation_steps},\n"
 
     with open(filename, "w") as fout:
         fout.writelines(lines)
@@ -43,7 +43,9 @@ def benchmark_all(args):
     except KeyError:
         print(f"No available benchmark suite for {args.suite} with {num_gpus} GPUs.")
         exit()
-    output_name = args.exp_name + "-" + datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    output_name = f"{args.exp_name}-" + datetime.now().strftime(
+        "%Y-%m-%d-%H-%M-%S"
+    )
 
     warmup_iter = 2
     bench_iter = 3
@@ -51,8 +53,12 @@ def benchmark_all(args):
     # MOE does not support stage 3
     config_file = "ds_zero_stage_2_moe_config.json"
 
+    # TODO (hao, zhuohan): Figure out how to set ep_size
+
+    use_deepspeed = True
+
     for case in benchmark_suites[args.suite][num_gpus]:
-        print(">>>>>> Alpa benchmark: Working on case {}...".format(str(case)), flush=True)
+        print(f">>>>>> Alpa benchmark: Working on case {str(case)}...", flush=True)
 
         (batch_size, model_config, num_micro_batches, parallel_mode,
          parallel_args) = case
@@ -61,10 +67,6 @@ def benchmark_all(args):
 
         (prefer_reduce_scatter, checkpoint_activations, dp_size, tensor_mp_size, pipeline_mp_size,
          _) = parallel_args
-
-        # TODO (hao, zhuohan): Figure out how to set ep_size
-
-        use_deepspeed = True
 
         assert dp_size * tensor_mp_size == num_gpus
         assert batch_size % dp_size == 0
@@ -131,16 +133,16 @@ def benchmark_all(args):
 
         if num_expert > 1:
             gpt_options += "--moe "
-            gpt_options += "--ep-world-size {} ".format(ep_size)
-            gpt_options += "--num-experts {} ".format(str(num_expert))
+            gpt_options += f"--ep-world-size {ep_size} "
+            gpt_options += f"--num-experts {str(num_expert)} "
             gpt_options += "--top-k 2 "
             gpt_options += "--min-capacity 4 "
             gpt_options += "--noisy-gate-policy None "
             gpt_options += "--moe-param-group "
-            gpt_options += "--output_name {}".format(output_name)
+            gpt_options += f"--output_name {output_name}"
 
         if args.nnodes > 1:
-            host_options = "--hostfile hostfile_{}node ".format(args.nnodes)
+            host_options = f"--hostfile hostfile_{args.nnodes}node "
         else:
             host_options = ""
 

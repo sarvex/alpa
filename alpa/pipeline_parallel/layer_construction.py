@@ -162,13 +162,9 @@ def add_pipeline_marks_for_sliced_eqns(closed_jaxpr: ClosedJaxpr, sliced_eqns):
     layer_num = len(sliced_eqns)
     layer_pipeline_invars = [OrderedSet() for _ in range(layer_num)]
     layer_pipeline_outvars = [OrderedSet() for _ in range(layer_num)]
-    var_layer_dict = {}
     var_mapping = {}
 
-    # build mapping dicts for global invars
-    for var in closed_jaxpr.jaxpr.invars:
-        var_layer_dict[var] = -1
-
+    var_layer_dict = {var: -1 for var in closed_jaxpr.jaxpr.invars}
     # build mapping dicts for all eqns
     for i, eqns in enumerate(sliced_eqns):
         for eqn in eqns:
@@ -259,10 +255,7 @@ def add_pipeline_marks_for_sliced_eqns(closed_jaxpr: ClosedJaxpr, sliced_eqns):
         else:
             new_outvars.append(get_var_mapping(var_mapping, var))
 
-    new_closed_jaxpr = clone_jaxpr(closed_jaxpr,
-                                   outvars=new_outvars,
-                                   eqns=new_eqns)
-    return new_closed_jaxpr
+    return clone_jaxpr(closed_jaxpr, outvars=new_outvars, eqns=new_eqns)
 
 
 def remat_sliced_eqns(origin_jaxpr, sliced_eqns):
@@ -342,7 +335,7 @@ def get_layer_construction_costs(jaxpr, cost_criteria="flops"):
 def cluster_jaxpr_by_cost(jaxpr: Jaxpr, layer_num: int, eps: float, costs,
                           cost_criteria):
     """Clusters the jaxpr by cost."""
-    layer_num = int(layer_num)
+    layer_num = layer_num
     length = len(jaxpr.eqns)
     non_trivial, input_sizes, compute_costs = costs
     compute_costs_avg = compute_costs.sum() / layer_num
@@ -563,9 +556,8 @@ def manual_remat(fun: Callable = None, *, static_argnums: Sequence[int] = ()):
 
     if fun is None:
         return decorate_fun
-    else:
-        _check_callable(fun)
-        return decorate_fun(fun)
+    _check_callable(fun)
+    return decorate_fun(fun)
 
 
 def automatic_remat(fun: Callable = None,
@@ -609,9 +601,8 @@ def automatic_remat(fun: Callable = None,
 
     if fun is None:
         return decorate_fun
-    else:
-        _check_callable(fun)
-        return decorate_fun(fun)
+    _check_callable(fun)
+    return decorate_fun(fun)
 
 
 def manual_layer_construction(fun: Callable = None,
@@ -642,9 +633,8 @@ def manual_layer_construction(fun: Callable = None,
 
     if fun is None:
         return decorate_fun
-    else:
-        _check_callable(fun)
-        return decorate_fun(fun)
+    _check_callable(fun)
+    return decorate_fun(fun)
 
 
 def automatic_layer_construction(fun: Callable = None,
@@ -687,9 +677,8 @@ def automatic_layer_construction(fun: Callable = None,
 
     if fun is None:
         return decorate_fun
-    else:
-        _check_callable(fun)
-        return decorate_fun(fun)
+    _check_callable(fun)
+    return decorate_fun(fun)
 
 
 def follow_layer_construction(fun, static_argnums, input_placement_specs,

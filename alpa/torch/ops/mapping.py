@@ -40,10 +40,9 @@ def infer_size(shape, numel):
             # works yet
             #   empty_tensor.view(-1, 0)
             # doesn't.
-            assert newsize != 0, (
-                "cannot reshape tensor of 0 elements into shape " + str(shape) +
-                " because the unspecified dimension size -1 can be any " +
-                "value and is ambiguous")
+            assert (
+                newsize != 0
+            ), f"cannot reshape tensor of 0 elements into shape {str(shape)} because the unspecified dimension size -1 can be any value and is ambiguous"
             res[infer_dim] = numel // newsize
         return res
 
@@ -80,9 +79,7 @@ def torch_add(x, other):
 
 def torch_addmm(x, mat1, mat2, beta=1, alpha=1):
     out = alpha * torch.matmul(mat1, mat2)
-    if beta == 0:
-        return out
-    return beta * x + out
+    return out if beta == 0 else beta * x + out
 
 
 def torch_bmm(x, mat2):
@@ -123,15 +120,14 @@ def torch_conv2d(x,
         feature_group_count=groups,
         batch_group_count=1,
     )
-    if bias is not None:
-        bias_reshaped = bias.reshape(1, bias.shape[0], 1, 1)
-        bias_reshaped = jnp.broadcast_to(bias_reshaped, [
-            conv_out.shape[0], bias.shape[0], conv_out.shape[2],
-            conv_out.shape[3]
-        ])
-        return conv_out + bias_reshaped
-    else:
+    if bias is None:
         return conv_out
+    bias_reshaped = bias.reshape(1, bias.shape[0], 1, 1)
+    bias_reshaped = jnp.broadcast_to(bias_reshaped, [
+        conv_out.shape[0], bias.shape[0], conv_out.shape[2],
+        conv_out.shape[3]
+    ])
+    return conv_out + bias_reshaped
 
 
 def torch_div(x, other, rounding_mode=None):
@@ -179,8 +175,7 @@ def maybe_wrap_dim(dim: int, dim_post_expr: int, wrap_scalar: bool = True):
         assert wrap_scalar
         dim_post_expr = 1
     min_dim = -dim_post_expr
-    max_dim = dim_post_expr - 1
-    assert not (dim < min_dim or dim > max_dim)
+    assert dim >= min_dim and dim <= dim_post_expr - 1
     if dim < 0:
         dim += dim_post_expr
     return dim
@@ -196,12 +191,9 @@ def torch_flatten(x, start_dim=0, end_dim=-1):
     slice_numel = 1
     for i in range(start_dim, end_dim + 1):
         slice_numel *= input_shape[i]
-    shape = []
-    for i in range(start_dim):
-        shape.append(input_shape[i])
+    shape = [input_shape[i] for i in range(start_dim)]
     shape.append(slice_numel)
-    for i in range(end_dim + 1, len(input_shape)):
-        shape.append(input_shape[i])
+    shape.extend(input_shape[i] for i in range(end_dim + 1, len(input_shape)))
     return torch_view(x, shape)
 
 
@@ -276,8 +268,7 @@ def torch_select(x, dim, index):
 
 
 def torch_slice(x, dim, start, end, step=1):
-    if end > x.shape[dim]:
-        end = x.shape[dim]
+    end = min(end, x.shape[dim])
     return lax.slice_in_dim(x, start, end, stride=step, axis=dim)
 
 

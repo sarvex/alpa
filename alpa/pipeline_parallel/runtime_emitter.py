@@ -117,12 +117,11 @@ class PipelineInstruction:
 
     def __str__(self):
         ret = ""
-        ret += "Opcode: " + str(self.opcode)[17:] + ", Task uuid: " + str(
-            self.task_uuid)
+        ret += f"Opcode: {str(self.opcode)[17:]}, Task uuid: {str(self.task_uuid)}"
         if self.print_uuids:
-            ret += ", input uuids:" + str(self.input_uuids)
-            ret += ", output uuids:" + str(self.output_uuids)
-        ret += ", Info: " + self.info
+            ret += f", input uuids:{str(self.input_uuids)}"
+            ret += f", output uuids:{str(self.output_uuids)}"
+        ret += f", Info: {self.info}"
         return ret
 
 
@@ -168,14 +167,14 @@ class PipelineInstEmitterHelper:
     def _get_var_key(self, var, batch_idx):
         if (var in self.global_invar_set and
                 var not in self.global_batch_invar_set):
-            key = (var, 0)
+            return var, 0
         elif (var in self.grad_dummy_invars and
               batch_idx != self.schedule.first_backward_batch_index):
-            key = (self.grad_dummy_invars[var],
-                   self.schedule.previous_backward_batch_index(batch_idx))
+            return self.grad_dummy_invars[
+                var
+            ], self.schedule.previous_backward_batch_index(batch_idx)
         else:
-            key = (var, batch_idx)
-        return key
+            return var, batch_idx
 
     def get_var_with_accumulate(self, var, batch_idx):
         if (var in self.grad_dummy_invars and
@@ -409,7 +408,7 @@ class PipelineInstEmitter:
             for worker_idx, worker in enumerate(mesh.workers):
                 worker_to_idx[worker] = (mesh_idx, worker_idx)
 
-        for _, sched in enumerate(self.schedule.schedules):
+        for sched in self.schedule.schedules:
             self._compile_exec_one_tick(sched, donation_mapping,
                                         instruction_lists, executable_uuids,
                                         executable_config_lists)
@@ -690,11 +689,10 @@ class PipelineInstEmitter:
                                                         batch_dim, num_batch)
                 input_shard_indices.append(
                     pxla.spec_to_indices(new_shape, new_spec))
-                input_shard_specs.append(var_to_spec[var])
             else:
                 input_shard_indices.append(
                     pxla.spec_to_indices(var.aval.shape, var_to_spec[var]))
-                input_shard_specs.append(var_to_spec[var])
+            input_shard_specs.append(var_to_spec[var])
         return (mesh_arg_list, mesh_arg_indices, input_shard_indices,
                 input_shard_specs, mesh_invar_is_batch)
 
@@ -744,14 +742,14 @@ class PipelineInstEmitter:
             input_shard_specs.append(shard_specs)
             batch_invars.append(is_batch)
 
-        delete_after_shard = []
-        for mesh_idx in range(num_mesh):
-            delete_after_shard.append([
-                self.global_invars[idx] in donated_invar_set and
-                arg_last_use[self.global_invars[idx]] == mesh_idx
+        delete_after_shard = [
+            [
+                self.global_invars[idx] in donated_invar_set
+                and arg_last_use[self.global_invars[idx]] == mesh_idx
                 for idx in mesh_arg_indices[mesh_idx]
-            ])
-
+            ]
+            for mesh_idx in range(num_mesh)
+        ]
         # Get local uuids for each input
         input_local_uuid_lists = [[] for _ in range(num_mesh)]
         for mesh_idx in range(num_mesh):
@@ -910,13 +908,14 @@ class PipelineInstEmitter:
             in_uuids = []
             out_uuids = output_uuids
             instruction_lists[worker].append(
-                PipelineInstruction.run(config.exec_uuid,
-                                        in_uuids,
-                                        out_uuids, {
-                                            "sync_before": False,
-                                            "sync_after": False
-                                        },
-                                        info="allocate zero for " + debug))
+                PipelineInstruction.run(
+                    config.exec_uuid,
+                    in_uuids,
+                    out_uuids,
+                    {"sync_before": False, "sync_after": False},
+                    info=f"allocate zero for {debug}",
+                )
+            )
 
         # shape: (#args, num_hosts, num_devices_per_host)
         for var_idx, var in enumerate(variables):
@@ -934,7 +933,7 @@ class PipelineInstEmitter:
 
         avals = [outvar.aval for outvar in self.global_outvars]
         is_replicated = [
-            bool(len(outvar_idx_to_mesh_idx[i]) > 1)
+            len(outvar_idx_to_mesh_idx[i]) > 1
             for i, _ in enumerate(self.global_outvars)
         ]
 
@@ -1096,7 +1095,7 @@ class PipelineInstEmitter:
                 new_list.append(instruction)
                 continue
             input_uuids = flatten_uuid_set(instruction.input_uuids)
-            if not instruction.opcode == PipelineInstType.FREE:
+            if instruction.opcode != PipelineInstType.FREE:
                 unused_uuids = input_uuids.difference(cannot_free_uuids)
                 if len(unused_uuids) > 0:
                     new_list.append(
@@ -1132,18 +1131,17 @@ class OverlapFriendlyPipelineInstEmitter(PipelineInstEmitter):
                 if (var in global_invar_set or var in self.grad_dummy_invars or
                         mesh_idx in var_at_mesh[var]):
                     continue
-                else:
-                    # Currently we use the first mesh, since there is almost no
-                    # redundant computation and the first sends earlier. If the
-                    # var is required multiple times, then we might need round-
-                    # robin to avoid congestion.
-                    src_stage_idx = list(var_defined[var])[0]
-                    # once the var is received, it is permanent stored. Maybe
-                    # we will can an option to config it.
-                    var_at_mesh[var].add(mesh_idx)
-                    # insert the recv task
-                    self.stage_send_vars[src_stage_idx].append(
-                        (mesh_idx, var, stage.input_sharding_specs[var_idx]))
+                # Currently we use the first mesh, since there is almost no
+                # redundant computation and the first sends earlier. If the
+                # var is required multiple times, then we might need round-
+                # robin to avoid congestion.
+                src_stage_idx = list(var_defined[var])[0]
+                # once the var is received, it is permanent stored. Maybe
+                # we will can an option to config it.
+                var_at_mesh[var].add(mesh_idx)
+                # insert the recv task
+                self.stage_send_vars[src_stage_idx].append(
+                    (mesh_idx, var, stage.input_sharding_specs[var_idx]))
 
             for var in stage.outvars:
                 var_defined.setdefault(var, OrderedSet()).add(stage_idx)
@@ -1159,8 +1157,7 @@ class OverlapFriendlyPipelineInstEmitter(PipelineInstEmitter):
                                (order[sv[1]], sv[0]))
             final_send_seq = []
             for recv_stage_idx, v, spec in send_vars:
-                if (len(final_send_seq) != 0 and
-                    (final_send_seq[-1][0] == recv_stage_idx)):
+                if final_send_seq and final_send_seq[-1][0] == recv_stage_idx:
                     final_send_seq[-1][1].append(v)
                     final_send_seq[-1][2].append(spec)
                 else:

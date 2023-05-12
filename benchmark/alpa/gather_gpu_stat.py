@@ -17,14 +17,11 @@ if __name__ == "__main__":
 
     host_info = []
     for node in ray.nodes():
-        for key in node["Resources"]:
-            if key.startswith("node:"):
-                host_info.append(node)
-
+        host_info.extend(node for key in node["Resources"] if key.startswith("node:"))
     results = []
-    for i in range(len(host_info)):
+    for item in host_info:
         # Launch a ray actor
-        node_resource = "node:" + host_info[i]["NodeManagerAddress"]
+        node_resource = "node:" + item["NodeManagerAddress"]
         func = ray.remote(resources={node_resource: 1e-3})(call_nvidia_smi)
         results.append(func.remote())
     results = ray.get(results)

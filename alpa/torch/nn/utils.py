@@ -233,7 +233,7 @@ def expand_module_call(prefix, graph: torch.fx.Graph, module, args, kwargs):
     try:
         assert not kwargs
         arg_index = itertools.count()
-        vars = dict()
+        vars = {}
         for node in InliningTracer().trace(module).nodes:
             if node.op == "placeholder":
                 vars[node] = args[next(arg_index)]
@@ -299,7 +299,7 @@ class Inplacifier:
         return name in VIEW_OPS or name in MAYBE_VIEW_OPS
 
     def inplacify(self):
-        counts = dict()
+        counts = {}
 
         def record_usage(node):
             counts[node].usages += 1
@@ -350,7 +350,7 @@ class Functionalization(Transformer):
 
     def __init__(self, *args, **kwargs):
         super(Functionalization, self).__init__(*args, **kwargs)
-        self.tracer.tensor_attrs = dict()  # TODO(jansel): upstream this fix
+        self.tracer.tensor_attrs = {}
 
     def run_node(self, n: torch.fx.Node):
 
@@ -388,7 +388,7 @@ class Functionalization(Transformer):
 
         if isinstance(target, functools.partial):
             assert not target.args
-            kwargs.update(target.keywords)
+            kwargs |= target.keywords
             target = target.func
 
         if not issubclass(n.meta["type"], torch.Tensor):
@@ -444,21 +444,18 @@ def create_names_map(named_params, tied_named_params):
     This function creates a mapping from the names in named_params to the
     names in tied_named_params: {'A': ['A'], 'B': ['B', 'B_tied']}.
     """
-    named_params = {k: v for k, v in named_params}
-    tied_named_params = {k: v for k, v in tied_named_params}
+    named_params = dict(named_params)
+    tied_named_params = dict(tied_named_params)
 
     tensors_dict_keys = set(named_params.keys())
     tied_tensors_dict_keys = set(tied_named_params.keys())
     assert tensors_dict_keys.issubset(tied_tensors_dict_keys)
 
-    tensor_to_mapping = {}
-    for key, tensor in named_params.items():
-        tensor_to_mapping[tensor] = (key, [])
+    tensor_to_mapping = {tensor: (key, []) for key, tensor in named_params.items()}
     for key, tensor in tied_named_params.items():
         assert tensor in tensor_to_mapping
         tensor_to_mapping[tensor][1].append(key.split("."))
-    result = {key: value for key, value in tensor_to_mapping.values()}
-    return result
+    return dict(tensor_to_mapping.values())
 
 
 def _set_nested_attr(obj: nn.Module, names: List[str], value: Tensor) -> None:
@@ -485,10 +482,7 @@ def _extract_members(mod: nn.Module, _named_members, named_members, subclass):
         replacement = memo[p]
         _set_nested_attr(mod, name.split("."), replacement)
 
-    if len(named_members) == 0:
-        names, params = (), ()
-    else:
-        names, params = zip(*named_members)
+    names, params = ((), ()) if not named_members else zip(*named_members)
     return params, names, names_map
 
 

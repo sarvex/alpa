@@ -47,8 +47,7 @@ def get_compute_key(fun: lu.WrappedFun, in_tree: PyTreeDef,
     aval = "".join(x.str_short() for x in aval)
 
     string = location + source_code + donated_invars + aval
-    hash_key = hashlib.md5(string.encode(encoding="utf-8")).hexdigest()
-    return hash_key
+    return hashlib.md5(string.encode(encoding="utf-8")).hexdigest()
 
 
 def compile_shard_executable(
@@ -79,14 +78,13 @@ def compile_shard_executable(
                                        static_argnums, donated_invars,
                                        physical_mesh, logical_mesh_choices,
                                        as_option, ms_option, *avals)
-    else:
-        if global_config.backend == "tpu":
-            raise NotImplementedError(
-                "Gradient accumulation for tpu is not supported")
-        return shard_parallel_internal_gradient_accumulation(
-            fun, in_tree, out_tree_thunk, static_argnums, donated_invars,
-            batch_invars, physical_mesh, logical_mesh_choices,
-            num_micro_batches, as_option, ms_option, *avals)
+    if global_config.backend == "tpu":
+        raise NotImplementedError(
+            "Gradient accumulation for tpu is not supported")
+    return shard_parallel_internal_gradient_accumulation(
+        fun, in_tree, out_tree_thunk, static_argnums, donated_invars,
+        batch_invars, physical_mesh, logical_mesh_choices,
+        num_micro_batches, as_option, ms_option, *avals)
 
 
 def shard_parallel_internal(
@@ -260,7 +258,7 @@ def filter_used_vars(all_vars, eqns):
 
 
 def filter_pass_through_vars(in_vars, out_vars):
-    in_vars_set = set(x for x in in_vars if not isinstance(x, Literal))
+    in_vars_set = {x for x in in_vars if not isinstance(x, Literal)}
     return [x for x in out_vars if x in in_vars_set]
 
 
@@ -315,8 +313,6 @@ def add_gradient_accumulation(raw_jaxpr, num_micro_batches):
 
     # Build the new jaxpr with gradient accumulation and pipeline marker
     global_invar_substitute = {}
-    combined_eqns = []
-
     # Create vars for gradient accumulation
     out_grad_vars = marker_eqn.invars
     old_grad_vars = clone_vars(out_grad_vars, gensym_func)
@@ -327,23 +323,27 @@ def add_gradient_accumulation(raw_jaxpr, num_micro_batches):
     old_invars = filter_used_vars(raw_jaxpr.jaxpr.invars,
                                   compute_grad_eqns) + old_grad_vars
     new_invars = clone_vars(old_invars, gensym_func)
-    combined_eqns.append(
-        new_jaxpr_eqn(new_invars, old_invars, pipeline_p, {
-            "mark_type": "start",
-            "name": "accumulate_grad"
-        }))
-    global_invar_substitute.update(zip(old_invars, new_invars))
+    combined_eqns = [
+        new_jaxpr_eqn(
+            new_invars,
+            old_invars,
+            pipeline_p,
+            {"mark_type": "start", "name": "accumulate_grad"},
+        )
+    ]
+    global_invar_substitute |= zip(old_invars, new_invars)
     accumulate_grad_invars = new_invars
 
     # Append eqns of compute_grad
     combined_eqns.extend(raw_jaxpr.jaxpr.eqns[:marker_pos])
 
     # Append eqns of gradient accumulation
-    for i in range(len(out_grad_vars)):
-        combined_eqns.append(
-            new_jaxpr_eqn([old_grad_vars[i], out_grad_vars[i]],
-                          [new_grad_vars[i]], add_p, {}))
-
+    combined_eqns.extend(
+        new_jaxpr_eqn(
+            [old_grad_vars[i], out_grad_vars[i]], [new_grad_vars[i]], add_p, {}
+        )
+        for i in range(len(out_grad_vars))
+    )
     # Wrap all outvars of accumulate_grad
     inter_grad_vars = [gensym_func(x.aval) for x in out_grad_vars]
     combined_eqns.append(
@@ -371,11 +371,13 @@ def add_gradient_accumulation(raw_jaxpr, num_micro_batches):
             new_invars.append(inter_grad_vars[in_grad_vars.index(var)])
     apply_grad_invars = new_invars
     combined_eqns.append(
-        new_jaxpr_eqn(new_invars, old_invars, pipeline_p, {
-            "mark_type": "start",
-            "name": APPLY_GRAD_MARKER_SUFFIX
-        }))
-
+        new_jaxpr_eqn(
+            apply_grad_invars,
+            old_invars,
+            pipeline_p,
+            {"mark_type": "start", "name": APPLY_GRAD_MARKER_SUFFIX},
+        )
+    )
     # Append eqns for gradient reduction
     for i in range(num_grads):
         tmp_var = old_invars[-(i + 1)]

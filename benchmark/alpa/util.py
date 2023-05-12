@@ -16,9 +16,7 @@ def write_tsv(heads, values, filename, print_line=True):
         fout.write("\t".join(values) + "\n")
 
     if print_line:
-        line = ""
-        for i in range(len(heads)):
-            line += heads[i] + ": " + values[i] + "  "
+        line = "".join(f"{heads[i]}: {values[i]}  " for i in range(len(heads)))
         print(line)
 
 
@@ -27,16 +25,16 @@ def benchmark_func(run_func, sync_func=None, warmup=1, repeat=3, number=5):
     costs = []
 
     # Warmup
-    for i in range(warmup):
+    for _ in range(warmup):
         run_func()
 
     # Benchmark
-    for i in range(repeat):
+    for _ in range(repeat):
         if sync_func:
             sync_func()
         tic = time.time()
 
-        for j in range(number):
+        for _ in range(number):
             run_func()
 
         if sync_func:
@@ -80,13 +78,7 @@ def compute_gpt_tflops(batch_size,
     total_flop = factor * batch_size * seq_len * (hidden_size ** 2) * num_layers * \
           (1 + seq_len / (6 * hidden_size)) \
           + 6 * batch_size * seq_len * hidden_size * vocab_size
-    # Note: The above formula does not count the first embedding table lookup
-    # because it is a sparse operation.
-    # If we use dense dot to compute the first embedding table lookup,
-    # then the last term in total_flops should be
-    # "+ 10 * batch_size * seq_len * hidden_size * vocab_size".
-    tflops = total_flop / latency / num_gpus / 1e12
-    return tflops
+    return total_flop / latency / num_gpus / 1e12
 
 
 def compute_moe_tflops(batch_size,
@@ -128,8 +120,7 @@ def compute_moe_tflops(batch_size,
 
     total_flop = pure_transformer * num_layers / 2 + \
                  moe_transformer * num_layers / 2 + embedding
-    tflops = total_flop / latency / num_gpus / 1e12
-    return tflops
+    return total_flop / latency / num_gpus / 1e12
 
 
 def compute_gpt_parameter_count(num_layers, hidden_size, vocab_size):
@@ -164,6 +155,5 @@ def compute_moe_parameter_count(num_layers,
 
     if num_expert == 1:
         return pure_transformer * num_layers + embedding
-    else:
-        half = num_layers / 2
-        return half * pure_transformer + half * moe_transformer + embedding
+    half = num_layers / 2
+    return half * pure_transformer + half * moe_transformer + embedding

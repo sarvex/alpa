@@ -109,7 +109,7 @@ class Response:
         elif content_type == "json":
             self.raw_headers.append([b"content-type", b"application/json"])
         else:
-            raise ValueError("Invalid content type {}".format(content_type))
+            raise ValueError(f"Invalid content type {content_type}")
 
     async def send(self, scope, receive, send):
         await send({

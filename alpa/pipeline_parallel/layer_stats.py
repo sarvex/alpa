@@ -40,10 +40,10 @@ def cluster_edges_cost(start: List["JaxprEqn"], end: List["JaxprEqn"]):
         for invar in eqn.invars:
             if isinstance(invar, Var) and invar in out_tensors:
                 in_tensors.add(invar)
-    acc = 0
-    for in_tensor in in_tensors:
-        acc += in_tensor.aval.size * in_tensor.aval.dtype.itemsize
-    return acc
+    return sum(
+        in_tensor.aval.size * in_tensor.aval.dtype.itemsize
+        for in_tensor in in_tensors
+    )
 
 
 def heavy_count(eqn):
@@ -51,9 +51,7 @@ def heavy_count(eqn):
     if "jaxpr" in eqn.params:
         return sum(heavy_count(x) for x in eqn.params["jaxpr"].eqns)
 
-    if eqn.primitive not in non_trivial_primitive:
-        return 0
-    return 1
+    return 0 if eqn.primitive not in non_trivial_primitive else 1
 
 
 def is_nontrivial(eqn):
@@ -63,10 +61,8 @@ def is_nontrivial(eqn):
 
 def get_cross_slice_vars(jaxpr, slices):
     """TODO(zhuohan):doscstring."""
-    defined = {}
     stage_invars = [OrderedSet() for _ in slices]
-    for invar in jaxpr.invars:
-        defined[invar] = -1
+    defined = {invar: -1 for invar in jaxpr.invars}
     for invar in jaxpr.constvars:
         defined[invar] = -1
     for i, sliced in enumerate(slices):
@@ -110,6 +106,7 @@ def log_layer_slicing_stats(origin_jaxpr, slices):
 
 def global_invar_size(invars: Set[Var], eqn: JaxprEqn):
     input_vars = {v for v in eqn.invars if isinstance(v, Var)}
-    size = sum((var.aval.size * var.aval.dtype.itemsize)
-               for var in invars.intersection(input_vars))
-    return size
+    return sum(
+        (var.aval.size * var.aval.dtype.itemsize)
+        for var in invars.intersection(input_vars)
+    )
